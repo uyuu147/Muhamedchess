@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "muhamedchess",
+    "slug": "muhamedchess",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.muhamedchess.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#101114"
+      }
+    },
+    "splash": {
+      "backgroundColor": "#101114"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_WITH_EAS_PROJECT_ID",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    }
+  }
+}
