@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -23,7 +22,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-            - name: Check Expo account
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
+
+      - name: Check Expo account
         run: eas whoami
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -32,4 +34,3 @@ jobs:
         run: eas build --platform android --profile preview --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          
