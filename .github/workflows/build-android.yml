@@ -1,3 +1,4 @@
+
 name: Build Android APK
 
 on:
@@ -30,7 +31,16 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Re-link Expo project
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('app.json','utf8'));delete p.expo.extra.eas.projectId;delete p.expo.updates.url;fs.writeFileSync('app.json',JSON.stringify(p,null,2)+'\n')"
+          eas init --account uyuu147 --non-interactive
+          node -e "const p=require('./app.json');console.log('Project ID:',p.expo.extra.eas.projectId);console.log('Updates URL:',p.expo.updates.url)"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
       - name: Build APK
         run: eas build --platform android --profile preview --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          
