@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0b0d12">
+<title>MuhamedChess — особые шахматы</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0d12;--panel:#151a23;--panel2:#1c2330;--line:#30394a;--gold:#d9b66d;--muted:#aab4c5;--light:#e8dfcb;--dark:#69758a}
+*{box-sizing:border-box}body{margin:0;padding:14px;background:radial-gradient(ellipse at top,#202838 0,#0b0d12 58%);color:#f4f1e9;font:15px system-ui,Arial,sans-serif;min-height:100vh}
+header,main{width:min(100%,980px);margin:auto}header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}h1{font-size:24px;color:var(--gold);margin:0;letter-spacing:.4px}.muted,.small{color:var(--muted);font-size:12px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,320px);gap:14px;align-items:start}.panel{background:linear-gradient(145deg,#1a202b,#131720);border:1px solid var(--line);border-radius:16px;padding:13px;margin-bottom:12px;box-shadow:0 10px 30px #0003}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px}.turn{font-weight:750}.turn b{color:var(--gold)}
+button,select{font:inherit;color:#f4f1e9;background:#252e3d;border:1px solid #414d61;border-radius:10px;padding:9px 11px;cursor:pointer}button:active{transform:scale(.98)}button.primary{background:#8c6a35;border-color:#c49b53}button.active{outline:2px solid var(--gold);background:#4b3c27}button.danger{border-color:#854b4b;background:#3b2428}
+.controls,.palette{display:flex;gap:7px;flex-wrap:wrap}.controls button{flex:1}
+#board{width:min(100%,680px);aspect-ratio:1;display:grid;margin:auto;border:5px solid #343d4e;border-radius:10px;overflow:hidden;box-shadow:0 16px 40px #0008;touch-action:manipulation}
+.cell{position:relative;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;overflow:hidden}.cell.light{background:var(--light);color:#17191e}.cell.dark{background:var(--dark);color:#11151c}.cell.selected{box-shadow:inset 0 0 0 4px #e7bd64}.cell.target:after{content:"";position:absolute;width:23%;height:23%;border-radius:50%;background:#263e31aa}.cell.capture:after{content:"";position:absolute;inset:4%;border:3px solid #c95850;border-radius:50%}.cell .piece{z-index:1;line-height:1;filter:drop-shadow(0 2px 2px #0005)}.coord{position:absolute;left:2px;bottom:0;font-size:9px;opacity:.55;z-index:2}
+#board.n8 .piece{font-size:clamp(22px,7vw,54px)}#board.n12 .piece{font-size:clamp(16px,4.5vw,36px)}#board.n16 .piece{font-size:clamp(12px,3.2vw,26px)}
+.piece.white{color:#fff;text-shadow:0 1px 2px #000,0 0 2px #000}.piece.black{color:#141414;text-shadow:0 1px 1px #fff8}
+h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:8px 0}.field label{font-size:12px;color:var(--muted)}.field select{flex:1;min-width:100px}
+.palette button{font-size:13px;padding:8px 9px}.piece-choice{min-width:43px}.desc{font-size:13px;line-height:1.5;color:#c5cedb}.ability-list{display:grid;gap:7px}.ability{background:#202735;border:1px solid #344052;border-radius:11px;padding:9px}.ability strong{display:block;color:#f2d59b;font-size:13px}.ability span{display:block;color:#b9c3d2;font-size:12px;line-height:1.4;margin-top:3px}
+#spaceList{display:flex;gap:6px;flex-wrap:wrap}.space-piece{display:flex;gap:5px;align-items:center;padding:6px 8px;border:1px solid #47546a;border-radius:9px;background:#202735;font-size:12px}
+#history{max-height:130px;overflow:auto;white-space:pre-wrap;font-size:12px;color:#b6c0ce;line-height:1.5}.hint{font-size:11px;color:#98a4b6;line-height:1.45}
+@media(max-width:760px){body{padding:10px}.layout{grid-template-columns:1fr}header h1{font-size:21px}#board{width:min(100%,620px)}.side{display:grid;grid-template-columns:1fr;gap:0}}
+</style>
+</head>
+<body>
+<header><div><h1>MuhamedChess</h1><div class="muted">Особые шахматы · 2 игрока · одно устройство</div></div><div class="muted">WEB EDITION</div></header>
+<main>
+<div class="layout">
+<section>
+ <div class="panel">
+  <div class="topbar"><div class="turn" id="turn">Ход: <b>Белые</b></div><div class="controls"><button onclick="undo()">↶ Отмена</button><button onclick="flip()">⇅ Вид</button><button class="primary" onclick="newGame()">Новая игра</button></div></div>
+  <div id="board" class="n8"></div>
+  <div class="field"><label for="size">Размер поля</label><select id="size" onchange="changeSize(+this.value)"><option value="8">8 × 8</option><option value="12">12 × 12</option><option value="16">16 × 16</option></select><span class="hint">При смене размера поле очищается.</span></div>
+ </div>
+ <div class="panel"><h2>Редактор поля</h2>
+  <div class="field"><button id="editToggle" onclick="toggleEditor()">Включить редактор</button><button onclick="clearBoard()">Очистить поле</button><button onclick="standardSetup()">Стандартная расстановка</button></div>
+  <div class="field"><label>Цвет:</label><button id="whiteSide" class="active" onclick="setEditColor('w')">Белые</button><button id="blackSide" onclick="setEditColor('b')">Чёрные</button><button id="eraseTool" onclick="setTool('erase')">Ластик</button></div>
+  <div class="palette" id="piecePalette"></div>
+  <div class="hint">Включи редактор, выбери цвет и фигуру, затем нажимай на любые клетки. В режиме игры фигуры ходят по очереди.</div>
+ </div>
+</section>
+<aside class="side">
+ <div class="panel"><h2>Способности</h2><div class="desc" id="abilityHelp">Выбери способность, затем нажми на свою фигуру, чтобы назначить её. Способность сработает после хода этой фигуры.</div><div class="palette" id="abilityPalette"></div></div>
+ <div class="panel"><h2>В космосе</h2><div id="spaceList" class="small">Пока пусто.</div><div class="hint">Фигуры, отправленные в космос, можно вернуть на любую свободную клетку в свой ход.</div></div>
+ <div class="panel"><h2>Описание способностей</h2><div class="ability-list" id="abilityDescriptions"></div></div>
+ <div class="panel"><h2>История партии</h2><div id="history">Партия началась.</div></div>
+ <div class="panel hint">Это браузерная версия игры. Для работы и сохранения прогресса открой сайт по постоянной ссылке GitHub Pages.</div>
+</aside>
+</div>
+</main>
+<script>
+const glyph={w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}};
+const names={k:'Король',q:'Ферзь',r:'Ладья',b:'Слон',n:'Конь',p:'Пешка'};
+const abilities=[
+ ['none','Обычная','♟','Без дополнительного эффекта.'],
+ ['blackhole','Чёрная дыра','🕳️','Притягивает ближайшие вражеские фигуры на одну клетку к себе. Короля не перемещает.'],
+ ['belaz','БелАЗ','🚛','Мощный таран: отталкивает соседние вражеские фигуры на одну клетку от себя, если клетка свободна.'],
+ ['kamaz','КамАЗ','🚚','Перевозит ближайшую союзную фигуру на свободную клетку рядом с собой.'],
+ ['time','Путешествие во времени','⌛','После хода даёт этой стороне ещё один ход подряд.'],
+ ['revolution','Революция','✊','Меняет местами свою фигуру с ближайшей вражеской фигурой, кроме короля.'],
+ ['war','Гражданская война','⚔️','Убирает соседние вражеские фигуры вокруг клетки, на которую пришла фигура. Король неуязвим.'],
+ ['metro','Телепорт Метро','🚇','Перемещает фигуру на ближайшую свободную клетку по вертикали или горизонтали.'],
+ ['cosmos','Телепортация Космос','🪐','Отправляет фигуру в космос. В свой следующий ход её можно вернуть на любую свободную клетку.'],
+ ['food','Сила еды','🍞','Если на клетке стоит пешка, превращает её в коня.'],
+ ['bio','Биооружие','☣️','Поражает соседние вражеские фигуры вокруг клетки прибытия. Король неуязвим.'],
+ ['study','Учёба','📚','Даёт стороне дополнительный ход после перемещения этой фигуры.']
+];
+let N=8,board=[],turn='w',selected=null,legal=[],flipped=false,editor=false,editColor='w',tool='p',abilityChoice='none',space=[],history=[],snapshots=[],last=null;
+const el=id=>document.getElementById(id);
+function emptyBoard(n){return Array.from({length:n},()=>Array(n).fill(null))}
+function piece(type,color,ability='none'){return {type,color,ability,id:Math.random().toString(36).slice(2,9)}}
+function setup(){board=emptyBoard(N);let order=N===8?['r','n','b','q','k','b','n','r']:N===12?['r','n','b','q','k','b','n','r','b','n','q','r']:['r','n','b','q','k','b','n','r','b','n','q','r','r','n','b','q'];for(let x=0;x<N;x++){board[N-1][x]=piece(order[x], 'w');board[N-2][x]=piece('p','w');board[0][x]=piece(order[x],'b');board[1][x]=piece('p','b')}turn='w';selected=null;legal=[];space=[];history=[];snapshots=[];last=null;render()}
+function newGame(){setup()}
+function cloneState(){return {board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null}}
+function save(){snapshots.push(cloneState());if(snapshots.length>80)snapshots.shift()}
+function restore(s){board=s.board;turn=s.turn;space=s.space;history=s.history;last=s.last;selected=null;legal=[];render()}
+function undo(){if(snapshots.length)restore(snapshots.pop())}
+function changeSize(n){N=n;setup();el('board').className='n'+N;render()}
+function coords(r,c){return String.fromCharCode(97+c)+(N-r)}
+function inside(r,c){return r>=0&&r<N&&c>=0&&c<N}
+function pseudo(r,c){let p=board[r][c];if(!p)return[];let out=[],add=(y,x)=>{if(inside(y,x)&&(!board[y][x]||board[y][x].color!==p.color))out.push([y,x])};
+let dirs=[];if(p.type==='n'){for(let [a,b] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])add(r+a,c+b)}
+else if(p.type==='k'){for(let y=-1;y<=1;y++)for(let x=-1;x<=1;x++)if(y||x)add(r+y,c+x)}
+else{if(p.type==='p'){let d=p.color==='w'?-1:1;if(inside(r+d,c)&&!board[r+d][c]){out.push([r+d,c]);let start=p.color==='w'?N-2:1;if(r===start&&inside(r+2*d,c)&&!board[r+2*d][c])out.push([r+2*d,c])}for(let x of [-1,1])if(inside(r+d,c+x)&&board[r+d][c+x]&&board[r+d][c+x].color!==p.color)out.push([r+d,c+x])}
+else{if(['r','q'].includes(p.type))dirs.push([-1,0],[1,0],[0,-1],[0,1]);if(['b','q'].includes(p.type))dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);for(let [dy,dx] of dirs){let y=r+dy,x=c+dx;while(inside(y,x)){if(!board[y][x])out.push([y,x]);else{if(board[y][x].color!==p.color)out.push([y,x]);break}y+=dy;x+=dx}}}}
+return out.filter(([y,x])=>!board[y][x]||board[y][x].color!==p.color)}
+function render(){let root=el('board');root.innerHTML='';root.style.gridTemplateColumns='repeat('+N+',minmax(0,1fr))';root.style.gridTemplateRows='repeat('+N+',minmax(0,1fr))';root.className='n'+N;
+for(let rr=0;rr<N;rr++)for(let cc=0;cc<N;cc++){let r=flipped?N-1-rr:rr,c=flipped?N-1-cc:cc,cell=document.createElement('div');cell.className='cell '+((r+c)%2?'dark':'light');if(selected&&selected[0]===r&&selected[1]===c)cell.classList.add('selected');if(legal.some(([y,x])=>y===r&&x===c))cell.classList.add(board[r][c]?'capture':'target');if(last&&((last.from[0]===r&&last.from[1]===c)||(last.to[0]===r&&last.to[1]===c)))cell.style.filter='brightness(1.18)';
+let p=board[r][c];if(p){let s=document.createElement('span');s.className='piece '+(p.color==='w'?'white':'black');s.textContent=p.ability!=='none'?abilities.find(a=>a[0]===p.ability)[2]:glyph[p.color][p.type];cell.appendChild(s)}
+if(cc===0&&N<=12){let co=document.createElement('span');co.className='coord';co.textContent=N-r;cell.appendChild(co)}
+cell.onclick=()=>tap(r,c);root.appendChild(cell)}
+el('turn').innerHTML='Ход: <b>'+(turn==='w'?'Белые':'Чёрные')+'</b>'+(editor?' · редактор':'');el('history').textContent=history.length?history.join('\n'):'Партия началась.';renderSpace()}
+function tap(r,c){if(editor){if(tool==='erase')board[r][c]=null;else if(tool==='return'){returnSpace(r,c);return}else board[r][c]=piece(tool,editColor);render();return}
+if(abilityChoice!=='none'&&board[r][c]&&board[r][c].color===turn){board[r][c].ability=abilityChoice;el('abilityHelp').textContent='Назначено: '+abilities.find(a=>a[0]===abilityChoice)[1]+'. Теперь сделай ход этой фигурой.';abilityChoice='none';renderAbilityPalette();render();return}
+if(selected){if(legal.some(([y,x])=>y===r&&x===c)){move(selected[0],selected[1],r,c);return}if(selected[0]===r&&selected[1]===c){selected=null;legal=[];render();return}}
+let p=board[r][c];if(p&&p.color===turn){selected=[r,c];legal=pseudo(r,c);render()}else{selected=null;legal=[];render()}}
+function move(r,c,y,x){save();let p=board[r][c],target=board[y][x];board[y][x]=p;board[r][c]=null;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type];history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='time'||p.ability==='study'){history.push('⏳ Дополнительный ход!');}else turn=turn==='w'?'b':'w';render()}
+function activate(p,r,c){let id=p.ability;if(!id||id==='none')return'';let enemy=p.color==='w'?'b':'w',near=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++){let q=board[y][x];if(q&&q.color===enemy&&q.type!=='k'&&Math.max(Math.abs(y-r),Math.abs(x-c))===1)near.push([y,x])}
+if(id==='cosmos'){space.push({...p,owner:p.color});board[r][c]=null;return '🪐 '+names[p.type]+' отправлена в космос. Возврат доступен в редакторе.'}
+if(id==='war'||id==='bio'){near.forEach(([y,x])=>board[y][x]=null);return (id==='war'?'⚔️ Гражданская война уничтожила: ':'☣️ Биооружие поразило: ')+(near.map(([y,x])=>coords(y,x)).join(', ')||'целей рядом нет')}
+if(id==='blackhole'){let moved=[];near.forEach(([y,x])=>{let ny=y+Math.sign(r-y),nx=x+Math.sign(c-x);if(inside(ny,nx)&&!board[ny][nx]){board[ny][nx]=board[y][x];board[y][x]=null;moved.push(coords(y,x))}});return '🕳️ Чёрная дыра притянула '+(moved.join(', ')||'никого')}
+if(id==='belaz'){let moved=[];near.forEach(([y,x])=>{let ny=y+Math.sign(y-r),nx=x+Math.sign(x-c);if(inside(ny,nx)&&!board[ny][nx]){board[ny][nx]=board[y][x];board[y][x]=null;moved.push(coords(y,x))}});return '🚛 БелАЗ протаранил '+(moved.join(', ')||'никого')}
+if(id==='revolution'){if(near.length){let [y,x]=near[0];[board[r][c],board[y][x]]=[board[y][x],board[r][c]];return '✊ Революция: фигуры поменялись местами'}return '✊ Революция: рядом нет цели'}
+if(id==='kamaz'){for(let y=0;y<N;y++)for(let x=0;x<N;x++){let q=board[y][x];if(q&&q.color===p.color&&q!==p&&Math.max(Math.abs(y-r),Math.abs(x-c))===1){let spot=null;for(let dy=-1;dy<=1&&!spot;dy++)for(let dx=-1;dx<=1;dx++)if(inside(r+dy,c+dx)&&!board[r+dy][c+dx]){spot=[r+dy,c+dx];break}if(spot){board[spot[0]][spot[1]]=q;board[y][x]=null;return '🚚 КамАЗ перевёз союзную фигуру'} }}return '🚚 КамАЗ: нет союзника для перевозки'}
+if(id==='metro'){for(let d=1;d<N;d++){for(let [y,x] of [[r-d,c],[r+d,c],[r,c-d],[r,c+d]])if(inside(y,x)&&!board[y][x]){board[y][x]=p;board[r][c]=null;return '🚇 Телепорт Метро: перемещение на '+coords(y,x)}}return '🚇 Метро: нет свободной станции'}
+if(id==='food'&&p.type==='p'){p.type='n';return '🍞 Сила еды: пешка стала конём'}
+return ''}
+function returnSpace(r,c){if(board[r][c]){el('abilityHelp').textContent='Клетка занята. Выбери свободную клетку.';return}let i=space.findIndex(p=>p.owner===turn);if(i<0){el('abilityHelp').textContent='В космосе нет твоих фигур.';return}save();let p=space.splice(i,1)[0];board[r][c]=piece(p.type,p.color,p.ability);turn=turn==='w'?'b':'w';history.push('🪐 '+names[p.type]+' вернулась из космоса на '+coords(r,c));render()}
+function renderSpace(){let box=el('spaceList');box.innerHTML='';if(!space.length){box.textContent='Пока пусто.';return}space.forEach((p,i)=>{let b=document.createElement('button');b.className='space-piece';b.textContent=(p.color==='w'?'Белая ':'Чёрная ')+names[p.type]+' · вернуть';b.onclick=()=>{if(editor){tool='return';el('abilityHelp').textContent='Выбери свободную клетку, чтобы вернуть фигуру из космоса.';toggleEditor(true)}else el('abilityHelp').textContent='Включи редактор и выбери свободную клетку для возврата.'};box.appendChild(b)})}
+function renderPiecePalette(){let box=el('piecePalette');box.innerHTML='';[['p','Пешка'],['n','Конь'],['b','Слон'],['r','Ладья'],['q','Ферзь'],['k','Король']].forEach(([t,n])=>{let b=document.createElement('button');b.className='piece-choice'+(tool===t?' active':'');b.textContent=glyph[editColor][t]+' '+n;b.onclick=()=>setTool(t);box.appendChild(b)})}
+function renderAbilityPalette(){let box=el('abilityPalette');box.innerHTML='';abilities.forEach(a=>{let b=document.createElement('button');b.className=abilityChoice===a[0]?'active':'';b.textContent=a[2]+' '+a[1];b.onclick=()=>{abilityChoice=a[0];el('abilityHelp').textContent=a[3]+' Нажми на свою фигуру, чтобы назначить.';renderAbilityPalette()};box.appendChild(b)})}
+function renderDescriptions(){el('abilityDescriptions').innerHTML='';abilities.slice(1).forEach(a=>{let d=document.createElement('div');d.className='ability';d.innerHTML='<strong>'+a[2]+' '+a[1]+'</strong><span>'+a[3]+'</span>';el('abilityDescriptions').appendChild(d)})}
+function toggleEditor(force){editor=typeof force==='boolean'?force:!editor;el('editToggle').textContent=editor?'Выключить редактор':'Включить редактор';el('editToggle').classList.toggle('active',editor);selected=null;legal=[];render()}
+function setEditColor(c){editColor=c;el('whiteSide').classList.toggle('active',c==='w');el('blackSide').classList.toggle('active',c==='b');renderPiecePalette()}
+function setTool(t){tool=t;renderPiecePalette();el('eraseTool').classList.toggle('active',t==='erase')}
+function clearBoard(){if(!editor)toggleEditor();board=emptyBoard(N);space=[];history.push('Поле очищено редактором.');render()}
+function standardSetup(){if(!editor)toggleEditor();setup();editor=true;el('editToggle').textContent='Выключить редактор';render()}
+function flip(){flipped=!flipped;render()}
+setup();renderPiecePalette();renderAbilityPalette();renderDescriptions();
+</script>
+</body>
+</html>
