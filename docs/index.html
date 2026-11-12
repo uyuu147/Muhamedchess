@@ -34,6 +34,7 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
  <div class="panel"><h2>Режим игры</h2><div class="controls"><button id="normalMode" class="active" onclick="setMode('normal')">Обычный</button><button id="crazyMode" onclick="setMode('crazy')">Режим хаоса 🤯</button></div><div class="hint" id="modeHelp">Обычные шахматные ходы. Короля съесть нельзя. Шах объявляется, мата нет.</div></div>
  <div class="panel"><h2>Онлайн-игра</h2><div class="controls"><button class="primary" onclick="createOnlineRoom()">Создать комнату</button><button onclick="copyInvite()">Копировать ссылку</button></div><div class="hint" id="onlineStatus">Создай комнату и отправь ссылку другу.</div></div>
  <div class="panel">
+  <button id="burnQuickButton" class="burn-quick" onclick="selectBurnAbility()">🔥 ПРОЖИГАНИЕ — ВЫБРАТЬ</button>
   <div class="topbar"><div class="turn" id="turn">Ход: <b>Белые</b></div><div class="controls"><button onclick="undo()">↶ Отмена</button><button onclick="flip()">⇅ Вид</button><button class="danger" onclick="resign()">Сдаться</button><button onclick="offerDraw()">Ничья</button><button class="primary" onclick="newGame()">Новая игра</button></div></div>
   <div id="board" class="n8"></div>
   <div class="field"><label for="size">Размер поля</label><select id="size" onchange="changeSize(+this.value)"><option value="8">8 × 8</option><option value="12">12 × 12</option><option value="16">16 × 16</option></select><span class="hint">При смене размера поле очищается.</span></div>
@@ -46,7 +47,7 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
  </div>
 </section>
 <aside class="side">
- <div class="panel"><h2>Способности</h2><div class="desc" id="abilityHelp">Выбери способность, затем нажми на свою фигуру, чтобы назначить её. Способность сработает после хода этой фигуры.</div><button id="burnQuickButton" class="burn-quick" onclick="selectBurnAbility()">🔥 ПРОЖИГАНИЕ — ВЫБРАТЬ</button><div class="palette" id="abilityPalette"></div></div>
+ <div class="panel"><h2>Способности</h2><div class="desc" id="abilityHelp">Выбери способность, затем нажми на свою фигуру, чтобы назначить её. Способность сработает после хода этой фигуры.</div><div class="palette" id="abilityPalette"></div></div>
  <div class="panel"><h2>В космосе</h2><div id="spaceList" class="small">Пока пусто.</div><div class="hint">Фигуры, отправленные в космос, можно вернуть на любую свободную клетку в свой ход.</div></div>
  <div class="panel"><h2>Описание способностей</h2><div class="ability-list" id="abilityDescriptions"></div></div>
  <div class="panel"><h2>История партии</h2><div id="history">Партия началась.</div></div>
