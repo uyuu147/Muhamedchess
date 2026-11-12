@@ -75,12 +75,12 @@ const el=id=>document.getElementById(id);
 function emptyBoard(n){return Array.from({length:n},()=>Array(n).fill(null))}
 function piece(type,color,ability='none'){return {type,color,ability,id:Math.random().toString(36).slice(2,9),moved:false}}
 function setup(){board=emptyBoard(N);let order=N===8?['r','n','b','q','k','b','n','r']:N===12?['r','n','b','q','k','b','n','r','b','n','q','r']:['r','n','b','q','k','b','n','r','b','n','q','r','r','n','b','q'];for(let x=0;x<N;x++){board[N-1][x]=piece(order[x], 'w');board[N-2][x]=piece('p','w');board[0][x]=piece(order[x],'b');board[1][x]=piece('p','b')}turn='w';selected=null;legal=[];space=[];history=[];snapshots=[];last=null;render()}
-function newGame(){setup()}
+function newGame(){setup();broadcastState()}
 function cloneState(){return {board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null}}
 function save(){snapshots.push(cloneState());if(snapshots.length>80)snapshots.shift()}
 function restore(s){board=s.board;turn=s.turn;space=s.space;history=s.history;last=s.last;selected=null;legal=[];render()}
-function undo(){if(snapshots.length)restore(snapshots.pop())}
-function changeSize(n){N=n;setup();el('board').className='n'+N;render()}
+function undo(){if(snapshots.length){restore(snapshots.pop());broadcastState()}}
+function changeSize(n){N=n;setup();el('board').className='n'+N;render();broadcastState()}
 function coords(r,c){return String.fromCharCode(97+c)+(N-r)}
 function inside(r,c){return r>=0&&r<N&&c>=0&&c<N}
 function pseudo(r,c){let p=board[r][c];if(!p)return[];let out=[],add=(y,x)=>{if(inside(y,x)&&(!board[y][x]||board[y][x].color!==p.color))out.push([y,x])};
