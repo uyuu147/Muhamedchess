@@ -203,7 +203,7 @@ function tap(r,c){if(pendingLasso){let q=board[r][c];if(!q||q.color===pendingLas
 if(abilityChoice!=='none'&&board[r][c]&&board[r][c].color===turn){board[r][c].ability=abilityChoice;el('abilityHelp').textContent='Назначено: '+abilities.find(a=>a[0]===abilityChoice)[1]+'. Теперь сделай ход этой фигурой.';abilityChoice='none';renderAbilityPalette();render();return}
 if(selected){if(legal.some(([y,x])=>y===r&&x===c)){move(selected[0],selected[1],r,c);return}if(selected[0]===r&&selected[1]===c){selected=null;legal=[];render();return}}
 let p=board[r][c];if(p&&p.lassoed){el('abilityHelp').textContent='🪢 Эта фигура поймана лассо и не может двигаться до конца своего хода.';selected=null;legal=[];render();return}if(p&&(mode==='crazy'||p.color===turn)){selected=[r,c];legal=[];if(mode==='crazy'){for(let yy=0;yy<N;yy++)for(let xx=0;xx<N;xx++)if((yy!==r||xx!==c)&&!isBurned(yy,xx))legal.push([yy,xx])}else legal=pseudo(r,c);render()}else{selected=null;legal=[];render()}}
-function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];tickLassoCooldown(p.color);if(mode==='normal'&&target&&target.type==='k')return;if(mode==='normal'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type];history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect();if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(mode==='normal'&&isKingInCheck(turn))history.push('♔ ШАХ королю '+(turn==='w'?'белых':'чёрных')+'!');render();broadcastState()}
+function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type];history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect();if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(mode==='normal'&&isKingInCheck(turn))history.push('♔ ШАХ королю '+(turn==='w'?'белых':'чёрных')+'!');render();broadcastState()}
 function clearPathDiagonal(y1,x1,y2,x2){if(Math.abs(y2-y1)!==Math.abs(x2-x1))return false;let dy=Math.sign(y2-y1),dx=Math.sign(x2-x1),y=y1+dy,x=x1+dx;while(y!==y2&&x!==x2){if(board[y][x])return false;y+=dy;x+=dx}return true}
 function tryAirplaneCombo(){
  for(let color of ['w','b']){
@@ -224,16 +224,41 @@ function tryAirplaneCombo(){
 }
 function triggerSpecialEffect(){
  let combo=tryAirplaneCombo();if(combo)return combo;
- if(Math.random()>.78)return '✨ Ничего не произошло… в этот раз.';
- let pieces=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++){let p=board[y][x];if(p&&p.type!=='k')pieces.push({y,x,p})}
- let empty=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(!board[y][x]&&!isBurned(y,x))empty.push([y,x]);
- let event=Math.floor(Math.random()*5);
- if(event===0&&pieces.length){let t=pieces[Math.floor(Math.random()*pieces.length)];board[t.y][t.x]=null;return '☄️ Метеорит уничтожил '+names[t.p.type]+' на '+coords(t.y,t.x)+'!'}
- if(event===1&&pieces.length&&empty.length){let t=pieces[Math.floor(Math.random()*pieces.length)],to=empty[Math.floor(Math.random()*empty.length)];board[to[0]][to[1]]=t.p;board[t.y][t.x]=null;return '🌀 Пространственный скачок: '+names[t.p.type]+' телепортировалась с '+coords(t.y,t.x)+' на '+coords(to[0],to[1])+'!'}
- if(event===2&&pieces.length>1){let a=pieces[Math.floor(Math.random()*pieces.length)],b=pieces[Math.floor(Math.random()*pieces.length)];if(a!==b){[board[a.y][a.x],board[b.y][b.x]]=[board[b.y][b.x],board[a.y][a.x]];return '🔀 Фигуры поменялись местами: '+coords(a.y,a.x)+' ↔ '+coords(b.y,b.x)+'!'}}
- if(event===3){let pawns=pieces.filter(t=>t.p.type==='p');if(pawns.length){let t=pawns[Math.floor(Math.random()*pawns.length)];t.p.type='n';return '🐴 Магическая мутация: пешка на '+coords(t.y,t.x)+' стала конём!'}}
- if(event===4){let pawns=pieces.filter(t=>t.p.type==='p');for(let t of pawns){let spots=[];for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if((dy||dx)&&inside(t.y+dy,t.x+dx)&&!board[t.y+dy][t.x+dx]&&!isBurned(t.y+dy,t.x+dx))spots.push([t.y+dy,t.x+dx]);if(spots.length){let to=spots[Math.floor(Math.random()*spots.length)];board[to[0]][to[1]]=piece('p',t.p.color);return '🐣 Пешка на '+coords(t.y,t.x)+' разделилась на две!'}}}
- return '✨ Ничего не произошло… в этот раз.';
+ let pieces=[],pawns=[],empty=[];
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+  let p=board[y][x];
+  if(p&&p.type!=='k'){let t={y,x,p};pieces.push(t);if(p.type==='p')pawns.push(t)}
+  if(!p&&!isBurned(y,x))empty.push([y,x]);
+ }
+ let events=[];
+ if(pieces.length)events.push(()=>{
+  let t=pieces[Math.floor(Math.random()*pieces.length)];board[t.y][t.x]=null;
+  return '☄️ Метеорит уничтожил '+names[t.p.type]+' на '+coords(t.y,t.x)+'!';
+ });
+ if(pieces.length&&empty.length)events.push(()=>{
+  let t=pieces[Math.floor(Math.random()*pieces.length)],to=empty[Math.floor(Math.random()*empty.length)];
+  board[to[0]][to[1]]=t.p;board[t.y][t.x]=null;
+  return '🌀 Пространственный скачок: '+names[t.p.type]+' телепортировалась с '+coords(t.y,t.x)+' на '+coords(to[0],to[1])+'!';
+ });
+ if(pieces.length>1)events.push(()=>{
+  let a=pieces[Math.floor(Math.random()*pieces.length)],b;
+  do{b=pieces[Math.floor(Math.random()*pieces.length)]}while(a===b);
+  [board[a.y][a.x],board[b.y][b.x]]=[board[b.y][b.x],board[a.y][a.x]];
+  return '🔀 Фигуры поменялись местами: '+coords(a.y,a.x)+' ↔ '+coords(b.y,b.x)+'!';
+ });
+ if(pawns.length)events.push(()=>{
+  let t=pawns[Math.floor(Math.random()*pawns.length)];t.p.type='n';
+  return '🐴 Магическая мутация: пешка на '+coords(t.y,t.x)+' стала конём!';
+ });
+ let split=[];
+ for(let t of pawns)for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)
+  if((dy||dx)&&inside(t.y+dy,t.x+dx)&&!board[t.y+dy][t.x+dx]&&!isBurned(t.y+dy,t.x+dx))split.push({t,to:[t.y+dy,t.x+dx]});
+ if(split.length)events.push(()=>{
+  let v=split[Math.floor(Math.random()*split.length)];board[v.to[0]][v.to[1]]=piece('p',v.t.p.color);
+  return '🐣 Пешка на '+coords(v.t.y,v.t.x)+' разделилась на две!';
+ });
+ if(!events.length)return '✨ Магическая вспышка! Поле задрожало, но фигуры уцелели.';
+ return events[Math.floor(Math.random()*events.length)]();
 }
 function releaseLassoForTurn(color){for(let row of board)for(let q of row)if(q&&q.color===color&&q.lassoed)q.lassoed=false}
 function tickLassoCooldown(color){if(lassoCooldown[color]>0)lassoCooldown[color]--}
