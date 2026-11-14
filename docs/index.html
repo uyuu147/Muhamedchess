@@ -27,7 +27,7 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
 </style>
 </head>
 <body>
-<header><div><h1>MuhamedChess</h1><div class="muted">Особые шахматы · 2 игрока · одно устройство</div></div><div class="muted">WEB EDITION</div></header>
+<header><div><h1>MuhamedChess</h1><div class="muted" id="subtitle">Особые шахматы · 2 игрока · одно устройство</div></div><div style="display:flex;align-items:center;gap:8px"><label class="muted" for="languageSelect" id="languageLabel">Язык</label><select id="languageSelect" onchange="setLanguage(this.value)" aria-label="Language"><option value="ru">Русский</option><option value="en">English</option></select><div class="muted">WEB EDITION</div></div></header>
 <main>
 <div class="layout">
 <section>
@@ -77,6 +77,90 @@ const abilities=[
  ['lasso','Лассо','🪢','После хода фигуры с лассо выбери чужую фигуру: она не сможет двигаться до конца своего следующего хода. Повторное применение — раз в три хода.']
 ];
 let N=8,board=[],turn='w',selected=null,legal=[],flipped=false,editor=false,editColor='w',tool='p',abilityChoice='none',space=[],history=[],snapshots=[],last=null,returnMode=false,gameOver=false,mode='normal',peer=null,conn=null,onlineRole=null,inviteUrl='',onlineSynced=false,bioHazards=[],burnedCells=[],pendingBurn=null,pendingLasso=null,lassoCooldown={w:0,b:0};
+
+let currentLanguage='ru';
+const translations={
+ 'Особые шахматы · 2 игрока · одно устройство':'Special chess · 2 players · same device',
+ 'Язык':'Language','Режим игры':'Game mode','Обычный':'Classic','Режим хаоса 🤯':'Chaos mode 🤯',
+ 'Обычные шахматные ходы. Короля съесть нельзя. Шах объявляется, мата нет.':'Standard chess moves. The king cannot be captured. Check is announced; there is no checkmate.',
+ 'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':'Standard moves. The king cannot be captured. Check is enabled; checkmate is not.',
+ 'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Chaos: move any piece in any way and capture the king. No check or checkmate.',
+ 'Онлайн-игра':'Online game','Создать комнату':'Create room','Копировать ссылку':'Copy invite link',
+ 'Создай комнату и отправь ссылку другу.':'Create a room and send the link to a friend.',
+ 'Ход: ':'Turn: ','Белые':'White','Чёрные':'Black','Отмена':'Undo','Вид':'Flip','Сдаться':'Resign','Ничья':'Draw','Новая игра':'New game',
+ 'Размер поля':'Board size','При смене размера поле очищается.':'Changing the size clears the board.',
+ 'Редактор поля':'Board editor','Включить редактор':'Enable editor','Выключить редактор':'Disable editor',
+ 'Очистить поле':'Clear board','Стандартная расстановка':'Standard setup','Цвет:':'Color:',
+ 'Ластик':'Eraser','Пешка':'Pawn','Конь':'Knight','Слон':'Bishop','Ладья':'Rook','Ферзь':'Queen','Король':'King',
+ 'Включи редактор, выбери цвет и фигуру, затем нажимай на любые клетки. В режиме игры фигуры ходят по очереди.':'Enable the editor, choose a color and piece, then tap any square. In game mode, players take turns.',
+ 'Способности':'Abilities','Выбери способность, затем нажми на свою фигуру, чтобы назначить её. Способность сработает после хода этой фигуры.':'Choose an ability, then tap one of your pieces to assign it. The ability activates after that piece moves.',
+ 'В космосе':'In space','Пока пусто.':'Empty for now.',
+ 'Фигуры, отправленные в космос, можно вернуть на любую свободную клетку в свой ход.':'Pieces sent into space can be returned to any empty square on your turn.',
+ 'Описание способностей':'Ability descriptions','История партии':'Game history',
+ 'Партия началась.':'The game has started.','Это браузерная версия игры. Для работы и сохранения прогресса открой сайт по постоянной ссылке GitHub Pages.':'This is the browser version of the game. Open the permanent GitHub Pages link to play and keep using the latest version.',
+ 'Назначено: ':'Assigned: ','Теперь сделай ход этой фигурой.':'Now move this piece.',
+ 'Нажми на свою фигуру, чтобы назначить.':'Tap one of your pieces to assign it.',
+ 'Без дополнительного эффекта.':'No additional effect.',
+ 'Чёрная дыра':'Black hole','Притягивает врагов в радиусе двух клеток: соседние фигуры поглощает, более дальние подтягивает на свободную соседнюю клетку. Короля не трогает.':'Pulls enemies within two squares: adjacent pieces are swallowed, while farther pieces are pulled one square closer. Does not affect the king.',
+ 'БелАЗ':'BelAZ truck','Мощный таран: отталкивает соседние вражеские фигуры на одну клетку от себя, если клетка свободна.':'A powerful ram: pushes adjacent enemy pieces one square away if the destination is empty.',
+ 'КамАЗ':'KAMAZ truck','Перевозит ближайшую союзную фигуру на свободную клетку рядом с собой.':'Moves the nearest friendly piece to an empty square next to itself.',
+ 'Путешествие во времени':'Time travel','После хода даёт этой стороне ещё один ход подряд.':'Grants this side exactly one extra move after moving.',
+ 'Революция':'Revolution','Меняет местами свою фигуру с ближайшей вражеской фигурой, кроме короля.':'Swaps this piece with the nearest enemy piece, except the king.',
+ 'Гражданская война':'Civil war','Убирает соседние вражеские фигуры вокруг клетки, на которую пришла фигура. Король неуязвим.':'Removes adjacent enemy pieces around the destination square. The king is immune.',
+ 'Телепорт Метро':'Metro teleport','Перемещает фигуру на ближайшую свободную клетку по вертикали или горизонтали.':'Moves the piece to the nearest empty square vertically or horizontally.',
+ 'Телепортация Космос':'Space teleport','Отправляет фигуру в космос. В свой следующий ход её можно вернуть на любую свободную клетку.':'Sends the piece into space. On a later turn, it can return to any empty square.',
+ 'Сила еды':'Food power','Если на клетке стоит пешка, превращает её в коня.':'If the piece is a pawn, turns it into a knight.',
+ 'Молния':'Lightning','После хода поражает одну ближайшую вражескую фигуру в радиусе двух клеток. Короля не трогает.':'After moving, strikes one nearest enemy piece within two squares. Does not affect the king.',
+ 'Переманивание':'Conversion','Переманивает ближайшую вражескую фигуру в радиусе двух клеток: она становится твоей и будет ходить за тебя. Короля переманить нельзя.':'Converts the nearest enemy piece within two squares so it joins your side. The king cannot be converted.',
+ 'Биооружие':'Bio-weapon','Оставляет заражённую клетку. Через 3 последующих хода уничтожает две ближайшие фигуры. В обычном режиме короли защищены; в режиме хаоса поражаются все.':'Leaves an infected square. After 3 subsequent turns, it destroys the two nearest pieces. Kings are protected in Classic mode; all pieces can be hit in Chaos mode.',
+ 'Зеркало':'Mirror','После активации защищает фигуру от следующей вражеской способности: эффект отражается на использовавшего её соперника. Срабатывает один раз.':'Protects a piece from the next enemy ability and reflects the effect back at its user. Works once.',
+ 'Лассо':'Lasso','После хода фигуры с лассо выбери чужую фигуру: она не сможет двигаться до конца своего следующего хода. Повторное применение — раз в три хода.':'After moving a piece with Lasso, choose an enemy piece: it cannot move until the end of its next turn. Recharges every three turns.',
+ 'Обычная':'Standard','Сейчас ход соперника.':'It is your opponent’s turn.',
+ 'Выбери чужую фигуру для лассо.':'Choose an enemy piece for Lasso.',
+ 'Выбери свободную клетку, которая ещё не прожжена.':'Choose an empty square that has not been burned.',
+ 'Эта фигура поймана лассо и не может двигаться до конца своего хода.':'This piece is caught by Lasso and cannot move until the end of its turn.',
+ 'Клетка занята. Выбери свободную клетку.':'That square is occupied. Choose an empty square.',
+ 'В космосе нет твоих фигур.':'You have no pieces in space.',
+ 'Сначала создай комнату.':'Create a room first.',
+ 'Ссылка скопирована!':'Invite link copied!','Подключено! Ты играешь чёрными.':'Connected! You are playing Black.',
+ 'Друг подключился. Ты играешь белыми.':'Friend connected. You are playing White.',
+ 'Создаю комнату…':'Creating room…','Подключаюсь…':'Connecting…',
+ 'Не загрузился онлайн-модуль. Обнови страницу.':'Online module failed to load. Refresh the page.',
+ 'Не удалось загрузить онлайн-модуль. Проверь интернет и обнови страницу.':'Could not load the online module. Check your internet connection and refresh.',
+ 'Онлайн-модуль загружен.':'Online module loaded.',
+ 'Партия завершена':'Game over','ШАХ!':'CHECK!','ШАХ королю ':'CHECK to the ','белых':'White','чёрных':'Black'
+};
+const originalText=new WeakMap(), translatedText=new WeakMap();
+let translating=false;
+function translateNode(node){
+ if(!node)return;
+ if(node.nodeType===Node.TEXT_NODE){
+  const raw=node.data.trim();if(!raw)return;
+  if(!originalText.has(node)||node.data!==translatedText.get(node))originalText.set(node,node.data);
+  const source=originalText.get(node),trim=source.trim(),value=translations[trim];
+  const next=value===undefined?source.replace(/^\\s+|\\s+$/g,'')===trim?source:source:source.replace(trim,value);
+  if(currentLanguage==='ru'){if(node.data!==source)node.data=source;translatedText.set(node,source)}
+  else if(value!==undefined){const result=source.replace(trim,value);if(node.data!==result)node.data=result;translatedText.set(node,result)}
+  else translatedText.set(node,node.data);
+ }else if(node.nodeType===Node.ELEMENT_NODE){
+  for(const child of node.childNodes)translateNode(child);
+  for(const attr of ['title','placeholder','aria-label'])if(node.hasAttribute(attr)){const v=node.getAttribute(attr);if(currentLanguage==='ru'&&node.dataset['orig'+attr])node.setAttribute(attr,node.dataset['orig'+attr]);else if(currentLanguage==='en'&&translations[v]){node.dataset['orig'+attr]=v;node.setAttribute(attr,translations[v])}}
+ }
+}
+function setLanguage(lang){
+ currentLanguage=lang==='en'?'en':'ru';
+ document.documentElement.lang=currentLanguage;
+ document.title=currentLanguage==='en'?'MuhamedChess — special chess':'MuhamedChess — особые шахматы';
+ const sel=el('languageSelect');if(sel&&sel.value!==currentLanguage)sel.value=currentLanguage;
+ translating=true;translateNode(document.body);translating=false;
+ if(el('abilityPalette'))renderAbilityPalette();
+ if(el('abilityDescriptions'))renderDescriptions();
+ if(el('piecePalette'))renderPiecePalette();
+ if(el('modeHelp'))el('modeHelp').textContent=translations[el('modeHelp').textContent]||el('modeHelp').textContent;
+}
+const languageObserver=new MutationObserver(records=>{if(translating)return;translating=true;for(const rec of records){if(rec.type==='childList')rec.addedNodes.forEach(translateNode);else if(rec.type==='characterData')translateNode(rec.target)}translating=false});
+languageObserver.observe(document.body,{subtree:true,childList:true,characterData:true});
+
 const el=id=>document.getElementById(id);
 function emptyBoard(n){return Array.from({length:n},()=>Array(n).fill(null))}
 function piece(type,color,ability='none'){return {type,color,ability,id:Math.random().toString(36).slice(2,9),moved:false}}
@@ -139,15 +223,15 @@ function applyOnlineState(s){if(!s||!s.board)return;N=s.N;board=s.board;turn=s.t
 function joinFromLink(){let id=new URLSearchParams(location.search).get('join');if(!id)return;if(!window.Peer){el('onlineStatus').textContent='Загружаю онлайн-модуль…';return;}onlineRole='b';onlineSynced=false;peer=new Peer();el('onlineStatus').textContent='Подключаюсь…';peer.on('open',()=>{conn=peer.connect(id);conn.on('open',()=>el('onlineStatus').textContent='Подключено! Ты играешь чёрными.');conn.on('data',s=>{if(s&&s.type==='state'&&(!onlineSynced||s.turn===onlineRole)){applyOnlineState(s);onlineSynced=true}})});peer.on('error',e=>el('onlineStatus').textContent='Ошибка сервера: '+e.type+(e.message?' — '+e.message:''))}
 function renderSpace(){let box=el('spaceList');box.innerHTML='';if(!space.length){box.textContent='Пока пусто.';return}space.forEach((p,i)=>{let b=document.createElement('button');b.className='space-piece';b.textContent=(p.color==='w'?'Белая ':'Чёрная ')+names[p.type]+' · вернуть';b.disabled=p.owner!==turn;b.onclick=()=>{returnMode=true;editor=false;el('editToggle').textContent='Включить редактор';el('abilityHelp').textContent='Выбери любую свободную клетку на поле, чтобы вернуть фигуру из космоса.';render()};box.appendChild(b)})}
 function renderPiecePalette(){let box=el('piecePalette');box.innerHTML='';[['p','Пешка'],['n','Конь'],['b','Слон'],['r','Ладья'],['q','Ферзь'],['k','Король']].forEach(([t,n])=>{let b=document.createElement('button');b.className='piece-choice'+(tool===t?' active':'');b.textContent=glyph[editColor][t]+' '+n;b.onclick=()=>setTool(t);box.appendChild(b)})}
-function renderAbilityPalette(){let box=el('abilityPalette');box.innerHTML='';abilities.forEach(a=>{let b=document.createElement('button');b.className=(abilityChoice===a[0]?'active ':'')+(a[0]==='burn'?'burn-ability':'');b.textContent=a[2]+' '+a[1];b.onclick=()=>{abilityChoice=a[0];el('abilityHelp').textContent=a[3]+' Нажми на свою фигуру, чтобы назначить.';renderAbilityPalette()};box.appendChild(b)})}
-function renderDescriptions(){el('abilityDescriptions').innerHTML='';abilities.slice(1).forEach(a=>{let d=document.createElement('div');d.className='ability';d.innerHTML='<strong>'+a[2]+' '+a[1]+'</strong><span>'+a[3]+'</span>';el('abilityDescriptions').appendChild(d)})}
+function renderAbilityPalette(){let box=el('abilityPalette');box.innerHTML='';abilities.forEach(a=>{let b=document.createElement('button');b.className=(abilityChoice===a[0]?'active ':'')+(a[0]==='burn'?'burn-ability':'');b.textContent=a[2]+' '+(currentLanguage==='en'?(translations[a[1]]||a[1]):a[1]);b.onclick=()=>{abilityChoice=a[0];el('abilityHelp').textContent=(currentLanguage==='en'?(translations[a[3]]||a[3]):a[3])+(currentLanguage==='en'?' Tap one of your pieces to assign it.':' Нажми на свою фигуру, чтобы назначить.');renderAbilityPalette()};box.appendChild(b)})}
+function renderDescriptions(){el('abilityDescriptions').innerHTML='';abilities.slice(1).forEach(a=>{let d=document.createElement('div');d.className='ability';d.innerHTML='<strong>'+a[2]+' '+(currentLanguage==='en'?(translations[a[1]]||a[1]):a[1])+'</strong><span>'+(currentLanguage==='en'?(translations[a[3]]||a[3]):a[3])+'</span>';el('abilityDescriptions').appendChild(d)})}
 function toggleEditor(force){editor=typeof force==='boolean'?force:!editor;el('editToggle').textContent=editor?'Выключить редактор':'Включить редактор';el('editToggle').classList.toggle('active',editor);selected=null;legal=[];render()}
 function setEditColor(c){editColor=c;el('whiteSide').classList.toggle('active',c==='w');el('blackSide').classList.toggle('active',c==='b');renderPiecePalette()}
 function setTool(t){tool=t;renderPiecePalette();el('eraseTool').classList.toggle('active',t==='erase')}
 function clearBoard(){if(!editor)toggleEditor();board=emptyBoard(N);space=[];history.push('Поле очищено редактором.');render()}
 function standardSetup(){if(!editor)toggleEditor();setup();editor=true;el('editToggle').textContent='Выключить редактор';render()}
 function flip(){flipped=!flipped;render()}
-setup();renderPiecePalette();renderAbilityPalette();renderDescriptions();joinFromLink();
+setup();renderPiecePalette();renderAbilityPalette();renderDescriptions();joinFromLink();setLanguage('ru');
 </script>
 </body>
 </html>
