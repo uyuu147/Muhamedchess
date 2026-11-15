@@ -40,6 +40,21 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
 .review-tile strong{display:block;font-size:12px;line-height:1.25}
 .review-tile small{display:block;color:#aeb9c9;font-size:11px;margin-top:2px}
 .review-move-list{display:grid;gap:7px}
+
+.review-timeline{margin:14px 0;padding:12px;background:#171f2b;border:1px solid #344052;border-radius:12px}
+.review-timeline h3{margin:0 0 5px;font-size:15px}
+.review-eval-chart{position:relative;display:grid;gap:3px;margin:12px 0 4px;max-height:240px;overflow:auto}
+.review-eval-lane{height:12px;position:relative;background:linear-gradient(90deg,#4d343a 0 50%,#354c3e 50% 100%);border-radius:4px}
+.review-eval-zero{display:none}
+.review-eval-bar{position:absolute;top:2px;height:8px;border-radius:3px;z-index:1}
+.review-eval-bar.white-edge{background:#8bd7a2}
+.review-eval-bar.black-edge{background:#e58b91}
+.review-eval-label{position:absolute;left:3px;top:-2px;font-size:8px;color:#fff;z-index:2;text-shadow:0 1px 2px #000}
+.review-eval-axis{display:flex;justify-content:space-between;color:#aeb9c9;font-size:10px}
+.review-pair{display:grid;gap:6px;margin-bottom:10px}
+.review-pair-number{font-weight:800;color:#c6d3e5;font-size:12px;padding:4px 2px}
+.review-move{margin:0}
+
 .review-move{background:#202735;border:1px solid #344052;border-radius:11px;padding:9px}
 .review-move-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .review-move-title{font-weight:700;font-size:13px}
@@ -572,14 +587,61 @@ function renderReviewSummary(counts,players){
  const tiles=reviewCategories.map(c=>'<div class="review-tile"><span class="review-symbol">'+c.symbol+'</span><div><strong>'+c.label+' · '+(counts[c.id]||0)+'</strong><small>'+c.description+'</small></div></div>').join('');
  summary.innerHTML=stats+'<div class="review-grid">'+tiles+'</div>';
 }
+function renderAdvantageTimeline(entries){
+ const summary=el('analysisSummary');
+ const wrap=document.createElement('div');wrap.className='review-timeline';
+ const heading=document.createElement('h3');heading.textContent='Как менялось преимущество';wrap.appendChild(heading);
+ const note=document.createElement('div');note.className='hint';note.textContent='Оценка Stockfish после каждого полухода: выше нуля — перевес белых, ниже — чёрных.';wrap.appendChild(note);
+ const chart=document.createElement('div');chart.className='review-eval-chart';
+ const zero=document.createElement('div');zero.className='review-eval-zero';chart.appendChild(zero);
+ entries.forEach((entry,i)=>{
+  const lane=document.createElement('div');lane.className='review-eval-lane';
+  const bar=document.createElement('div');bar.className='review-eval-bar '+(entry.score>=0?'white-edge':'black-edge');
+  const magnitude=Math.min(5,Math.abs(entry.score));
+  bar.style.width=(magnitude/5*48)+'%';
+  bar.style.left=entry.score>=0?'50%':(50-magnitude/5*48)+'%';
+  bar.title=(entry.color==='w'?'Белые':'Чёрные')+' '+entry.move+' · '+entry.eval+' · '+entry.san;
+  lane.appendChild(bar);
+  const label=document.createElement('span');label.className='review-eval-label';label.textContent=entry.move+(entry.color==='w'?'Б':'Ч');lane.appendChild(label);
+  chart.appendChild(lane);
+ });
+ wrap.appendChild(chart);
+ const axis=document.createElement('div');axis.className='review-eval-axis';axis.innerHTML='<span>−5 · перевес чёрных</span><span>0 · равно</span><span>+5 · перевес белых</span>';wrap.appendChild(axis);
+ summary.appendChild(wrap);
+}
+function renderMoveReview(entries){
+ const box=el('analysisResults');box.replaceChildren();
+ const grouped=new Map();
+ entries.forEach(entry=>{if(!grouped.has(entry.fullmove))grouped.set(entry.fullmove,[]);grouped.get(entry.fullmove).push(entry)});
+ grouped.forEach((pair,number)=>{
+  const group=document.createElement('section');group.className='review-pair';
+  const heading=document.createElement('div');heading.className='review-pair-number';heading.textContent='Ход '+number;group.appendChild(heading);
+  pair.forEach(entry=>{
+   const row=document.createElement('div');row.className='review-move';
+   const head=document.createElement('div');head.className='review-move-head';
+   const title=document.createElement('span');title.className='review-move-title';title.textContent=(entry.color==='w'?'♔ Белые':'♚ Чёрные')+' · '+entry.san;
+   const badge=document.createElement('span');badge.className='review-badge '+entry.kind;badge.textContent=entry.category.symbol+' '+entry.category.label;
+   head.append(title,badge);
+   const detail=document.createElement('small');
+   let swing='Оценка: '+entry.eval;
+   if(entry.delta!==null)swing+=' · Изменение: '+(entry.delta>0?'+':'')+entry.delta.toFixed(2);
+   swing+=' · Лучший ход движка: '+moveLabel(entry.best||'—');
+   if(entry.shift)swing+=' · ⚠️ ПЕРЕВЕС СМЕНИЛСЯ';
+   detail.textContent=swing;
+   row.append(head,detail);group.appendChild(row);
+  });
+  box.appendChild(group);
+ });
+}
 async function analyzeGame(){
  const status=el('analysisStatus'),summary=el('analysisSummary'),box=el('analysisResults'),button=el('analyzeGameButton');
  if(!analysisCompatible||N!==8||!['normal','special'].includes(mode)){status.textContent='Эту партию нельзя разобрать обычным шахматным движком: использовались нестандартные правила, размер поля или редактор.';return}
  if(!analysisMoves.length){status.textContent='Сначала сделай несколько ходов в стандартной партии 8×8.';return}
- const moves=analysisMoves.slice(0,40),truncated=analysisMoves.length>moves.length;
- summary.innerHTML='';box.replaceChildren();button.disabled=true;
+ const moves=analysisMoves.slice(0,80),truncated=analysisMoves.length>moves.length;
+ summary.replaceChildren();box.replaceChildren();button.disabled=true;
  const counts=Object.fromEntries(reviewCategories.map(c=>[c.id,0]));
  const players={w:{moves:0,loss:0},b:{moves:0,loss:0}};
+ const entries=[];
  try{
   for(let i=0;i<moves.length;i++){
    status.textContent='Stockfish анализирует ход '+(i+1)+' из '+moves.length+'…';
@@ -590,20 +652,19 @@ async function analyzeGame(){
    const book=i<16?await isOpeningBookMove(m.fenBefore,m.uci):false;
    const kind=classifyAnalyzedMove(m,before,after,loss,i,book);
    counts[kind]++;players[m.color].moves++;players[m.color].loss+=loss;
-   const category=reviewCategories.find(c=>c.id===kind);
-   const row=document.createElement('div');row.className='review-move';
-   const head=document.createElement('div');head.className='review-move-head';
-   const title=document.createElement('span');title.className='review-move-title';
-   title.textContent=(i+1)+'. '+(m.color==='w'?'Белые':'Чёрные')+' · '+moveLabel(m.uci);
-   const badge=document.createElement('span');badge.className='review-badge '+kind;badge.textContent=category.symbol+' '+category.label;
-   head.append(title,badge);
-   const detail=document.createElement('small');
-   detail.textContent='Потеря шансов на победу: '+(loss*100).toFixed(1)+' п.п. · Лучший ход: '+moveLabel(parseBestMove(before.bestmove))+' · Оценка после: '+evalLabel(after);
-   row.append(head,detail);box.appendChild(row);
+   const whiteEval=stockfishWhiteScore(after);
+   const previousWhite=i===0?stockfishWhiteScore(before):entries[i-1].score;
+   const delta=whiteEval-previousWhite;
+   const shift=Math.abs(delta)>=0.8&&previousWhite*whiteEval<0;
+   const fullmove=Math.floor(i/2)+1;
+   entries.push({color:m.color,fullmove,san:moveLabel(m.uci),kind,category:reviewCategories.find(c=>c.id===kind),eval:evalLabel(after),score:whiteEval,delta,best:parseBestMove(before.bestmove),shift});
   }
   renderReviewSummary(counts,players);
+  renderAdvantageTimeline(entries);
+  renderMoveReview(entries);
   const pct=p=>p.moves?Math.max(0,Math.min(100,Math.round((1-p.loss/p.moves)*100))):0;
-  status.textContent='Разбор завершён · '+moves.length+' ходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'%'+(truncated?' · показаны первые 40 ходов.':'')+' Показатели приблизительные, глубина 14.';
+  const shifts=entries.filter(x=>x.shift).length;
+  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' Оценка приблизительная, глубина 14.';
  }catch(err){
   status.textContent='Не удалось закончить разбор: '+err.message+'. Попробуй ещё раз позже.';
  }finally{button.disabled=false}
