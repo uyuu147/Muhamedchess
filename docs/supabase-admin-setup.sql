@@ -182,6 +182,14 @@ drop policy if exists "Admins can read user bans" on public.user_bans;
 create policy "Admins can read user bans" on public.user_bans
   for select to authenticated using (public.is_site_admin(auth.uid()));
 
+revoke all on function public.is_site_admin(uuid) from public, anon;
+revoke all on function public.my_admin_role() from public, anon;
+revoke all on function public.get_my_ban_status() from public, anon;
+revoke all on function public.admin_list_users() from public, anon;
+revoke all on function public.admin_ban_user(text, text, integer) from public, anon;
+revoke all on function public.admin_unban_user(text) from public, anon;
+revoke all on function public.owner_set_role(text, text) from public, anon;
+
 grant execute on function public.is_site_admin(uuid) to authenticated;
 grant execute on function public.my_admin_role() to authenticated;
 grant execute on function public.get_my_ban_status() to authenticated;
