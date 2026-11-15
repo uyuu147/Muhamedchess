@@ -296,7 +296,7 @@ async function accountSignUp(){
  if(!supabaseClient){accountMessage('Не загрузился модуль аккаунта. Обнови страницу.');return}
  const email=el('accountEmail').value.trim(),password=el('accountPassword').value,username=el('accountUsername').value.trim();
  if(!email||password.length<6){accountMessage('Введи email и пароль минимум из 6 символов.');return}
- const {data,error}=await supabaseClient.auth.signUp({email,password,options:{data:{username:username||undefined}}});
+ const {data,error}=await supabaseClient.auth.signUp({email,password,options:{data:{username:username||undefined},emailRedirectTo:'https://uyuu147.github.io/Muhamedchess/'}});
  if(error){accountMessage('Ошибка регистрации: '+error.message);return}
  if(data.session){accountUser=data.user;await loadAccountProfile();accountMessage('Аккаунт создан! Ты вошёл в MuhamedChess.')}
  else accountMessage('Регистрация почти готова. Проверь почту и подтверди email, затем войди.');
