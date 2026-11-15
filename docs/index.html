@@ -33,6 +33,14 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
 <section>
  <div class="panel"><h2>Режим игры</h2><div class="controls"><button id="normalMode" class="active" onclick="setMode('normal')">Обычный</button><button id="crazyMode" onclick="setMode('crazy')">Режим хаоса 🤯</button><button id="specialMode" onclick="setMode('special')">Шахматы со спецэффектами ✨</button></div><div class="hint" id="modeHelp">Обычные шахматные ходы. Короля съесть нельзя. Шах объявляется, мата нет.</div></div>
  <div class="panel"><h2>Онлайн-игра</h2><div class="controls"><button class="primary" onclick="createOnlineRoom()">Создать комнату</button><button onclick="copyInvite()">Копировать ссылку</button></div><div class="hint" id="onlineStatus">Создай комнату и отправь ссылку другу.</div></div>
+ <div class="panel" id="accountPanel"><h2>Аккаунт и рейтинг</h2>
+  <div class="field"><label for="accountUsername">Имя игрока</label><input id="accountUsername" maxlength="24" placeholder="Твой ник" autocomplete="username" style="flex:1;min-width:130px"></div>
+  <div class="field"><label for="accountEmail">Email</label><input id="accountEmail" type="email" placeholder="you@example.com" autocomplete="email" style="flex:1;min-width:130px"></div>
+  <div class="field"><label for="accountPassword">Пароль</label><input id="accountPassword" type="password" placeholder="Минимум 6 символов" autocomplete="current-password" style="flex:1;min-width:130px"></div>
+  <div class="controls"><button class="primary" onclick="accountSignUp()">Регистрация</button><button onclick="accountSignIn()">Войти</button><button onclick="accountSignOut()">Выйти</button></div>
+  <div class="hint" id="accountStatus">Войди или создай аккаунт, чтобы увидеть профиль и рейтинги.</div>
+  <div class="ability-list" id="accountRatings"></div>
+ </div>
  <div class="panel">
   
   <div class="topbar"><div class="turn" id="turn">Ход: <b>Белые</b></div><div class="controls"><button onclick="undo()">↶ Отмена</button><button onclick="flip()">⇅ Вид</button><button class="danger" onclick="resign()">Сдаться</button><button onclick="offerDraw()">Ничья</button><button class="primary" onclick="newGame()">Новая игра</button></div></div>
@@ -55,6 +63,7 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
 </aside>
 </div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script async src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" onload="peerLibraryReady()" onerror="peerLibraryFailed()"></script>
 <script>
 const glyph={w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}};
@@ -277,6 +286,54 @@ function setTool(t){tool=t;renderPiecePalette();el('eraseTool').classList.toggle
 function clearBoard(){if(!editor)toggleEditor();board=emptyBoard(N);space=[];history.push('Поле очищено редактором.');render()}
 function standardSetup(){if(!editor)toggleEditor();setup();editor=true;el('editToggle').textContent='Выключить редактор';render()}
 function flip(){flipped=!flipped;render()}
+
+const SUPABASE_URL='https://uabnlqtuakwfstqszorg.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhYm5scXR1YWt3ZnN0cXN6b3JnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3MDEwMTEsImV4cCI6MjExMDI3NzAxMX0.6iOlPbmziIHzM5CROdVESRGLsqkgLFcuUTAEUwJI_HM';
+const supabaseClient=window.supabase?.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+let accountUser=null;
+function accountMessage(msg){const n=el('accountStatus');if(n)n.textContent=msg}
+async function accountSignUp(){
+ if(!supabaseClient){accountMessage('Не загрузился модуль аккаунта. Обнови страницу.');return}
+ const email=el('accountEmail').value.trim(),password=el('accountPassword').value,username=el('accountUsername').value.trim();
+ if(!email||password.length<6){accountMessage('Введи email и пароль минимум из 6 символов.');return}
+ const {data,error}=await supabaseClient.auth.signUp({email,password,options:{data:{username:username||undefined}}});
+ if(error){accountMessage('Ошибка регистрации: '+error.message);return}
+ if(data.session){accountUser=data.user;await loadAccountProfile();accountMessage('Аккаунт создан! Ты вошёл в MuhamedChess.')}
+ else accountMessage('Регистрация почти готова. Проверь почту и подтверди email, затем войди.');
+}
+async function accountSignIn(){
+ if(!supabaseClient){accountMessage('Не загрузился модуль аккаунта. Обнови страницу.');return}
+ const {data,error}=await supabaseClient.auth.signInWithPassword({email:el('accountEmail').value.trim(),password:el('accountPassword').value});
+ if(error){accountMessage('Ошибка входа: '+error.message);return}
+ accountUser=data.user;await loadAccountProfile();accountMessage('Вход выполнен.');
+}
+async function accountSignOut(){
+ if(!supabaseClient)return;
+ const {error}=await supabaseClient.auth.signOut();
+ if(error){accountMessage('Ошибка выхода: '+error.message);return}
+ accountUser=null;el('accountRatings').innerHTML='';accountMessage('Ты вышел из аккаунта.');
+}
+async function loadAccountProfile(){
+ if(!accountUser||!supabaseClient)return;
+ const [{data:profile,error:profileError},{data:ratings,error:ratingsError}]=await Promise.all([
+  supabaseClient.from('profiles').select('username').eq('id',accountUser.id).maybeSingle(),
+  supabaseClient.from('mode_ratings').select('mode,rating,wins,losses,draws,games').eq('user_id',accountUser.id)
+ ]);
+ if(profileError){accountMessage('Не удалось загрузить профиль: '+profileError.message);return}
+ if(profile?.username)el('accountUsername').value=profile.username;
+ if(ratingsError){accountMessage('Профиль загружен, но рейтинг не прочитан: '+ratingsError.message);return}
+ const labels={normal:'Классика',crazy:'Хаос',special:'Спецэффекты'};
+ el('accountRatings').innerHTML=['normal','crazy','special'].map(m=>{const r=(ratings||[]).find(x=>x.mode===m);return '<div class="ability"><strong>'+labels[m]+' — '+(r?r.rating:1500)+' Elo</strong><span>Победы: '+(r?.wins||0)+' · Поражения: '+(r?.losses||0)+' · Ничьи: '+(r?.draws||0)+' · Игр: '+(r?.games||0)+'</span></div>'}).join('');
+ accountMessage('Профиль: '+(profile?.username||'Игрок')+' · '+accountUser.email);
+}
+async function initAccount(){
+ if(!supabaseClient){accountMessage('Не удалось загрузить Supabase. Проверь интернет и обнови страницу.');return}
+ const {data:{session}}=await supabaseClient.auth.getSession();
+ if(session){accountUser=session.user;await loadAccountProfile()}
+ supabaseClient.auth.onAuthStateChange((_event,session)=>{accountUser=session?.user||null;if(accountUser)setTimeout(()=>loadAccountProfile(),0);else el('accountRatings').innerHTML=''});
+}
+
+initAccount();
 setup();renderPiecePalette();renderAbilityPalette();renderDescriptions();joinFromLink();setLanguage('ru');
 </script>
 </body>
