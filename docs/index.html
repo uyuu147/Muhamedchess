@@ -596,10 +596,10 @@ function runLocalStockfish(fen){
    const pending={fen,depth:0,score:null,pv:'',resolve,reject,timer:null};
    pending.timer=setTimeout(()=>{
     if(localStockfishPending===pending){localStockfishPending=null;worker.postMessage('stop');reject(new Error('Stockfish слишком долго анализировал позицию.'))}
-   },10000);
+   },5000);
    localStockfishPending=pending;
    worker.postMessage('position fen '+fen);
-   worker.postMessage('go movetime 180');
+   worker.postMessage('go movetime 55');
   });
  });
  localStockfishQueue=task.then(()=>undefined,()=>undefined);
@@ -908,14 +908,18 @@ async function analyzeGame(){
    const delta=whiteEval-previousWhite;
    const shift=Math.abs(delta)>=0.8&&previousWhite*whiteEval<0;
    const fullmove=Math.floor(i/2)+1;
-   const best= parseBestMove(before.bestmove);entries.push({color:m.color,fullmove,san:m.san||uciSanFromFen(m.fenBefore,m.uci),uci:m.uci,fenBefore:m.fenBefore,kind,category:reviewCategories.find(c=>c.id===kind),eval:evalLabel(after),score:whiteEval,delta,best,bestSan:uciSanFromFen(m.fenBefore,best),shift});
+   const best=parseBestMove(before.bestmove);
+   entries.push({color:m.color,fullmove,san:m.san||uciSanFromFen(m.fenBefore,m.uci),uci:m.uci,fenBefore:m.fenBefore,kind,category:reviewCategories.find(c=>c.id===kind),eval:evalLabel(after),score:whiteEval,delta,best,bestSan:uciSanFromFen(m.fenBefore,best),shift});
+   // Show analysed moves immediately instead of waiting for the whole game.
+   renderReviewSummary(counts,players);
+   renderAdvantageTimeline(entries);
+   renderMoveReview(entries);
+   status.textContent='Быстрый анализ: готово '+(i+1)+' из '+moves.length+' ходов…';
+   await new Promise(resolve=>setTimeout(resolve,0));
   }
-  renderReviewSummary(counts,players);
-  renderAdvantageTimeline(entries);
-  renderMoveReview(entries);
   const pct=p=>p.moves?Math.max(0,Math.min(100,Math.round((1-p.loss/p.moves)*100))):0;
   const shifts=entries.filter(x=>x.shift).length;
-  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' · Нажми на любой ход, чтобы увидеть его на доске и сравнить с лучшим вариантом Stockfish.'+' · Быстрый режим Stockfish: около 0,18 секунды на позицию.';
+  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' · Нажми на любой ход, чтобы увидеть его на доске и сравнить с лучшим вариантом Stockfish.'+' · Быстрый режим Stockfish: около 0,055 секунды на позицию. Результаты появлялись по мере анализа.';
  }catch(err){
   status.textContent='Не удалось закончить разбор: '+err.message+'. Попробуй ещё раз позже.';
  }finally{button.disabled=false}
