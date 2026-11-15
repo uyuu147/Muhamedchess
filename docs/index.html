@@ -29,6 +29,34 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
 #spaceList{display:flex;gap:6px;flex-wrap:wrap}.space-piece{display:flex;gap:5px;align-items:center;padding:6px 8px;border:1px solid #47546a;border-radius:9px;background:#202735;font-size:12px}
 #history{max-height:130px;overflow:auto;white-space:pre-wrap;font-size:12px;color:#b6c0ce;line-height:1.5}.hint{font-size:11px;color:#98a4b6;line-height:1.45}
 @media(max-width:760px){body{padding:10px}.layout{grid-template-columns:1fr}header h1{font-size:21px}#board{width:min(100%,620px)}.side{display:grid;grid-template-columns:1fr;gap:0}}
+
+.review-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+.review-stat{background:#202735;border:1px solid #39465b;border-radius:12px;padding:10px;text-align:center}
+.review-stat strong{display:block;font-size:20px;color:#f1d397}
+.review-stat span{font-size:12px;color:#c1cad8}
+.review-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:9px 0 12px}
+.review-tile{background:#1b222e;border:1px solid #344052;border-radius:10px;padding:8px;display:flex;align-items:center;gap:8px;min-width:0}
+.review-tile .review-symbol{font-size:21px;min-width:25px;text-align:center}
+.review-tile strong{display:block;font-size:12px;line-height:1.25}
+.review-tile small{display:block;color:#aeb9c9;font-size:11px;margin-top:2px}
+.review-move-list{display:grid;gap:7px}
+.review-move{background:#202735;border:1px solid #344052;border-radius:11px;padding:9px}
+.review-move-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.review-move-title{font-weight:700;font-size:13px}
+.review-badge{display:inline-flex;align-items:center;gap:5px;border-radius:8px;padding:4px 7px;font-weight:750;font-size:12px;white-space:nowrap}
+.review-badge.brilliant{background:#174a50;color:#8df0e4}
+.review-badge.great{background:#3e315d;color:#d7b8ff}
+.review-badge.best{background:#2e4935;color:#b9f0be}
+.review-badge.excellent{background:#284d51;color:#b1edf1}
+.review-badge.good{background:#33443c;color:#c9e7ce}
+.review-badge.book{background:#4b4029;color:#f1d397}
+.review-badge.inaccuracy{background:#51472d;color:#f3d58b}
+.review-badge.mistake{background:#543a28;color:#f2b783}
+.review-badge.miss{background:#523a50;color:#f0b8e8}
+.review-badge.blunder{background:#592d35;color:#ffadb7}
+.review-move small{display:block;color:#b9c3d2;font-size:11px;line-height:1.45;margin-top:5px}
+#analyzeGameButton:disabled{opacity:.55;cursor:wait}
+
 </style>
 </head>
 <body>
@@ -92,8 +120,9 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
  <div class="panel"><h2>История партии</h2><div id="history">Партия началась.</div></div>
  <div class="panel" id="analysisPanel"><h2>Разбор партии · Stockfish</h2>
   <button class="primary" id="analyzeGameButton" onclick="analyzeGame()">🤖 Оценить партию</button>
-  <div class="hint" id="analysisStatus">Движок оценивает ходы и показывает лучший вариант. Доступно для стандартной партии 8×8 без способностей.</div>
-  <div class="ability-list" id="analysisResults"></div>
+  <div class="hint" id="analysisStatus">Полный разбор партии: бриллианты, лучшие ходы, ошибки и точность обоих игроков. Доступно для стандартной партии 8×8 без способностей.</div>
+  <div id="analysisSummary"></div>
+  <div class="review-move-list" id="analysisResults"></div>
  </div>
  <div class="panel hint">Это браузерная версия игры. Для работы и сохранения прогресса открой сайт по постоянной ссылке GitHub Pages.</div>
 </aside>
@@ -326,16 +355,22 @@ if(selected){if(legal.some(([y,x])=>y===r&&x===c)){move(selected[0],selected[1],
 let p=board[r][c];if(p&&p.lassoed){el('abilityHelp').textContent='🪢 Эта фигура поймана лассо и не может двигаться до конца своего хода.';selected=null;legal=[];render();return}if(p&&(mode==='crazy'||p.color===turn)){selected=[r,c];legal=[];if(mode==='crazy'){for(let yy=0;yy<N;yy++)for(let xx=0;xx<N;xx++)if((yy!==r||xx!==c)&&!isBurned(yy,xx))legal.push([yy,xx])}else legal=legalMovesForPiece(r,c);render()}else{selected=null;legal=[];render()}}
 
 function hasCustomAbilities(){return board.some(row=>row.some(q=>q&&q.ability&&q.ability!=='none'))}
-function analysisFEN(){
+function analysisFEN(afterCurrentMove=false){
  const code={p:'p',n:'n',b:'b',r:'r',q:'q',k:'k'};
  const rows=board.map(row=>{let out='',empty=0;for(const q of row){if(!q){empty++;continue}if(empty){out+=empty;empty=0}let ch=code[q.type]||'p';out+=q.color==='w'?ch.toUpperCase():ch}if(empty)out+=empty;return out}).join('/');
  let rights='';
  const wk=board[7][4],bk=board[0][4];
  if(wk&&wk.type==='k'&&wk.color==='w'&&!wk.moved){if(board[7][7]?.type==='r'&&board[7][7].color==='w'&&!board[7][7].moved)rights+='K';if(board[7][0]?.type==='r'&&board[7][0].color==='w'&&!board[7][0].moved)rights+='Q'}
  if(bk&&bk.type==='k'&&bk.color==='b'&&!bk.moved){if(board[0][7]?.type==='r'&&board[0][7].color==='b'&&!board[0][7].moved)rights+='k';if(board[0][0]?.type==='r'&&board[0][0].color==='b'&&!board[0][0].moved)rights+='q'}
- return rows+' '+turn+' '+(rights||'-')+' - 0 '+(Math.floor(analysisMoves.length/2)+1);
+ let ep='-';
+ if(last&&Array.isArray(last.from)&&Array.isArray(last.to)){
+  const [fr]=last.from,[tr,tc]=last.to,moved=board[tr]?.[tc];
+  if(moved&&moved.type==='p'&&Math.abs(fr-tr)===2)ep=coords((fr+tr)/2,tc);
+ }
+ const played=analysisMoves.length+(afterCurrentMove?1:0);
+ return rows+' '+turn+' '+(rights||'-')+' '+ep+' 0 '+(Math.floor(played/2)+1);
 }
-function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];let enPassantCapture=!!(p&&p.type==='p'&&c!==x&&!target&&board[r][x]&&board[r][x].type==='p');if(enPassantCapture)target=board[r][x];let trackMove=analysisCompatible&&N===8&&(mode==='normal'||mode==='special')&&!hasCustomAbilities()&&p&&p.ability==='none';if(analysisCompatible&&!trackMove)analysisCompatible=false;let fenBefore=trackMove?analysisFEN():null,uciMove=coords(r,c)+coords(y,x)+(p&&p.type==='p'&&(y===0||y===N-1)?'q':'');let movingColor=turn;let airplaneCapture=mode==='special'&&p.type==='b'&&target&&target.type==='r';tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;if(enPassantCapture)board[r][x]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type]+(enPassantCapture?' (на проходе)':'');history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect([r,c],[y,x],p.type,target&&target.type);if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(trackMove&&analysisCompatible&&!hasCustomAbilities())analysisMoves.push({fenBefore,fenAfter:analysisFEN(),uci:uciMove,color:movingColor});else if(trackMove)analysisCompatible=false;if(turn!==movingColor)evaluateChessPosition();render();broadcastState()}
+function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];let enPassantCapture=!!(p&&p.type==='p'&&c!==x&&!target&&board[r][x]&&board[r][x].type==='p');if(enPassantCapture)target=board[r][x];let trackMove=analysisCompatible&&N===8&&(mode==='normal'||mode==='special')&&!hasCustomAbilities()&&p&&p.ability==='none';if(analysisCompatible&&!trackMove)analysisCompatible=false;let fenBefore=trackMove?analysisFEN():null,uciMove=coords(r,c)+coords(y,x)+(p&&p.type==='p'&&(y===0||y===N-1)?'q':'');let movingColor=turn;let airplaneCapture=mode==='special'&&p.type==='b'&&target&&target.type==='r';tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;if(enPassantCapture)board[r][x]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type]+(enPassantCapture?' (на проходе)':'');history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect([r,c],[y,x],p.type,target&&target.type);if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(trackMove&&analysisCompatible&&!hasCustomAbilities())analysisMoves.push({fenBefore,fenAfter:analysisFEN(true),uci:uciMove,color:movingColor});else if(trackMove)analysisCompatible=false;if(turn!==movingColor)evaluateChessPosition();render();broadcastState()}
 function triggerSpecialEffect(from,to,pieceType,capturedType){
  let kind='flash',icon='✨',message='✨ Вспышка после хода!';
  if(capturedType){
@@ -438,47 +473,137 @@ async function loadAccountProfile(){
  accountMessage('Профиль: '+(profile?.username||'Игрок')+' · '+accountUser.email);
 }
 
+const stockfishEvaluationCache=new Map();
+const openingBookCache=new Map();
+const reviewCategories=[
+ {id:'brilliant',symbol:'💎',label:'Бриллиант',description:'Сильная жертва с хорошей компенсацией'},
+ {id:'great',symbol:'!',label:'Отличный ход',description:'Спасает сложную позицию или меняет её ход'},
+ {id:'best',symbol:'★',label:'Лучший ход',description:'Совпадает с первым выбором Stockfish'},
+ {id:'excellent',symbol:'!',label:'Превосходно',description:'Почти не уступает лучшему ходу'},
+ {id:'good',symbol:'✓',label:'Хороший ход',description:'Небольшая потеря преимущества'},
+ {id:'book',symbol:'📖',label:'Дебютная теория',description:'Ход найден в базе партий мастеров'},
+ {id:'inaccuracy',symbol:'?!',label:'Неточность',description:'Заметно ослабляет позицию'},
+ {id:'mistake',symbol:'?',label:'Ошибка',description:'Серьёзно ухудшает положение'},
+ {id:'miss',symbol:'⏳',label:'Упущенный шанс',description:'Не использована явная возможность'},
+ {id:'blunder',symbol:'??',label:'Грубая ошибка',description:'Резко ухудшает оценку позиции'}
+];
 async function stockfishEvaluate(fen){
- const url='https://stockfish.online/api/s/v2.php?'+new URLSearchParams({fen,depth:'12'}).toString();
+ if(stockfishEvaluationCache.has(fen))return stockfishEvaluationCache.get(fen);
+ const url='https://stockfish.online/api/s/v2.php?'+new URLSearchParams({fen,depth:'14'}).toString();
  const response=await fetch(url,{method:'GET',cache:'no-store'});
  if(!response.ok)throw new Error('Движок ответил HTTP '+response.status);
  const data=await response.json();
  if(!data.success)throw new Error(data.error||'Движок не смог оценить позицию');
- if(typeof data.evaluation!=='number'&&data.mate===null)throw new Error('Движок вернул некорректную оценку');
+ data.mate=data.mate===null||data.mate===undefined?null:Number(data.mate);
+ if(!Number.isFinite(data.evaluation)&&data.mate===null)throw new Error('Движок вернул некорректную оценку');
+ if(stockfishEvaluationCache.size>100)stockfishEvaluationCache.delete(stockfishEvaluationCache.keys().next().value);
+ stockfishEvaluationCache.set(fen,data);
  return data;
 }
-function moveLabel(uci){return uci.length>=4?uci.slice(0,2)+'–'+uci.slice(2,4)+(uci.length>4?'='+uci.slice(4).toUpperCase():''):uci}
-function evalLabel(d){return d.mate!==null?'мат в '+d.mate:(d.evaluation>0?'+':'')+Number(d.evaluation).toFixed(2)}
+async function isOpeningBookMove(fen,uci){
+ if(openingBookCache.has(fen))return openingBookCache.get(fen)===uci;
+ try{
+  const url='https://explorer.lichess.ovh/masters?'+new URLSearchParams({fen,moves:'12',topGames:'0'}).toString();
+  const response=await fetch(url,{cache:'no-store'});
+  if(!response.ok)return false;
+  const data=await response.json();
+  const move=(data.moves||[]).find(x=>x.uci===uci&&((x.white||0)+(x.draws||0)+(x.black||0))>=20);
+  const found=!!move;
+  openingBookCache.set(fen,found?uci:'');
+  return found;
+ }catch(_){return false}
+}
+function moveLabel(uci){return uci&&uci.length>=4?uci.slice(0,2)+'–'+uci.slice(2,4)+(uci.length>4?'='+uci.slice(4).toUpperCase():''):String(uci||'—')}
+function evalLabel(d){
+ if(d.mate!==null&&Number.isFinite(d.mate))return (d.mate>0?'Мат белым через ':'Мат чёрным через ')+Math.abs(d.mate);
+ const v=Number(d.evaluation);return (v>0?'+':'')+v.toFixed(2);
+}
+function stockfishWhiteScore(d){
+ if(d.mate!==null&&Number.isFinite(d.mate)&&d.mate!==0){
+  const sign=Math.sign(d.mate),distance=Math.min(99,Math.abs(d.mate));
+  return sign*(100-distance*.001);
+ }
+ return Number(d.evaluation);
+}
+function expectedPoints(score){return .5+.5*Math.tanh(Math.max(-40,Math.min(40,score))/4)}
+function playerScore(d,color){const score=stockfishWhiteScore(d);return color==='w'?score:-score}
+function parseBestMove(raw){
+ const parts=String(raw||'').trim().split(/\s+/);
+ return parts[0]==='bestmove'?(parts[1]||''):(parts[0]||'');
+}
+function fenPieceAt(fen,square){
+ if(!fen||!square||square.length<2)return null;
+ const rows=fen.split(' ')[0].split('/'),file=square.charCodeAt(0)-97,rank=Number(square[1]),row=8-rank;
+ if(row<0||row>7||file<0||file>7)return null;
+ let col=0;
+ for(const token of rows[row]){
+  if(/[1-8]/.test(token)){col+=Number(token);continue}
+  if(col===file)return token;
+  col++;
+ }
+ return null;
+}
+function isCapturingReplyToMovedPiece(after,m){
+ const reply=parseBestMove(after.bestmove);
+ if(reply.length<4||m.uci.length<4||reply.slice(2,4)!==m.uci.slice(2,4))return false;
+ const piece=fenPieceAt(m.fenAfter,m.uci.slice(2,4));
+ if(!piece)return false;
+ const value={p:1,n:3,b:3,r:5,q:9,k:100}[piece.toLowerCase()]||0;
+ return value>=3;
+}
+function classifyAnalyzedMove(m,before,after,loss,index,book){
+ const beforeScore=playerScore(before,m.color),afterScore=playerScore(after,m.color);
+ const bestMove=parseBestMove(before.bestmove),isBest=bestMove===m.uci;
+ if(book&&loss<.05)return 'book';
+ if(isBest&&isCapturingReplyToMovedPiece(after,m)&&afterScore>=-.35&&beforeScore<4.5&&loss<.05)return 'brilliant';
+ if(isBest&&beforeScore<-.8&&afterScore>-.25&&afterScore-beforeScore>=.8&&loss<.05)return 'great';
+ if(isBest&&loss<.005)return 'best';
+ if(loss<.02)return 'excellent';
+ if(loss<.05)return 'good';
+ if(beforeScore>1.25&&loss>=.05&&loss<.20)return 'miss';
+ if(loss<.10)return 'inaccuracy';
+ if(loss<.20)return 'mistake';
+ return 'blunder';
+}
+function renderReviewSummary(counts,players){
+ const summary=el('analysisSummary');
+ const accuracy=p=>p.moves?Math.max(0,Math.min(100,Math.round((1-p.loss/p.moves)*100))):0;
+ const stats='<div class="review-stats"><div class="review-stat"><strong>'+accuracy(players.w)+'%</strong><span>Точность белых · оценка</span></div><div class="review-stat"><strong>'+accuracy(players.b)+'%</strong><span>Точность чёрных · оценка</span></div></div>';
+ const tiles=reviewCategories.map(c=>'<div class="review-tile"><span class="review-symbol">'+c.symbol+'</span><div><strong>'+c.label+' · '+(counts[c.id]||0)+'</strong><small>'+c.description+'</small></div></div>').join('');
+ summary.innerHTML=stats+'<div class="review-grid">'+tiles+'</div>';
+}
 async function analyzeGame(){
- const status=el('analysisStatus'),box=el('analysisResults'),button=el('analyzeGameButton');
+ const status=el('analysisStatus'),summary=el('analysisSummary'),box=el('analysisResults'),button=el('analyzeGameButton');
  if(!analysisCompatible||N!==8||!['normal','special'].includes(mode)){status.textContent='Эту партию нельзя разобрать обычным шахматным движком: использовались нестандартные правила, размер поля или редактор.';return}
  if(!analysisMoves.length){status.textContent='Сначала сделай несколько ходов в стандартной партии 8×8.';return}
- const moves=analysisMoves.slice(0,30),truncated=analysisMoves.length>moves.length;
- box.innerHTML='';button.disabled=true;
- let blunders=0,mistakes=0,inaccuracies=0;
+ const moves=analysisMoves.slice(0,40),truncated=analysisMoves.length>moves.length;
+ summary.innerHTML='';box.replaceChildren();button.disabled=true;
+ const counts=Object.fromEntries(reviewCategories.map(c=>[c.id,0]));
+ const players={w:{moves:0,loss:0},b:{moves:0,loss:0}};
  try{
   for(let i=0;i<moves.length;i++){
    status.textContent='Stockfish анализирует ход '+(i+1)+' из '+moves.length+'…';
    const m=moves[i];
-   const before=await stockfishEvaluate(m.fenBefore);
-   const after=await stockfishEvaluate(m.fenAfter);
-   let loss=NaN;
-   if(before.mate===null&&after.mate===null){
-    loss=Math.max(0,m.color==='w'?before.evaluation-after.evaluation:after.evaluation-before.evaluation);
-   }else if(before.mate!==null&&after.mate===null)loss=99;
-   else if(before.mate===null&&after.mate!==null)loss=99;
-   let kind='Хороший ход';
-   if(before.bestmove&&before.bestmove.replace(/^bestmove\s+/,'').split(/\s+/)[0]===m.uci)kind='Лучший ход';
-   else if(loss>=1.5){kind='Грубая ошибка';blunders++}
-   else if(loss>=0.7){kind='Ошибка';mistakes++}
-   else if(loss>=0.25){kind='Неточность';inaccuracies++}
-   else if(loss>=0.1)kind='Небольшая неточность';
-   const row=document.createElement('div');row.className='ability';
-   const strong=document.createElement('strong');strong.textContent=(i+1)+'. '+(m.color==='w'?'Белые':'Чёрные')+' · '+moveLabel(m.uci)+' — '+kind;
-   const span=document.createElement('span');span.textContent='Лучший ход: '+(before.bestmove||'—').replace(/^bestmove\s+/,'').split(/\s+/)[0]+' · Потеря: '+(Number.isFinite(loss)?Math.round(loss*100)+' цп':'матовая оценка')+' · Позиция после хода: '+evalLabel(after);
-   row.append(strong,span);box.appendChild(row);
+   const [before,after]=await Promise.all([stockfishEvaluate(m.fenBefore),stockfishEvaluate(m.fenAfter)]);
+   const beforeScore=playerScore(before,m.color),afterScore=playerScore(after,m.color);
+   const loss=Math.max(0,expectedPoints(beforeScore)-expectedPoints(afterScore));
+   const book=i<16?await isOpeningBookMove(m.fenBefore,m.uci):false;
+   const kind=classifyAnalyzedMove(m,before,after,loss,i,book);
+   counts[kind]++;players[m.color].moves++;players[m.color].loss+=loss;
+   const category=reviewCategories.find(c=>c.id===kind);
+   const row=document.createElement('div');row.className='review-move';
+   const head=document.createElement('div');head.className='review-move-head';
+   const title=document.createElement('span');title.className='review-move-title';
+   title.textContent=(i+1)+'. '+(m.color==='w'?'Белые':'Чёрные')+' · '+moveLabel(m.uci);
+   const badge=document.createElement('span');badge.className='review-badge '+kind;badge.textContent=category.symbol+' '+category.label;
+   head.append(title,badge);
+   const detail=document.createElement('small');
+   detail.textContent='Потеря шансов на победу: '+(loss*100).toFixed(1)+' п.п. · Лучший ход: '+moveLabel(parseBestMove(before.bestmove))+' · Оценка после: '+evalLabel(after);
+   row.append(head,detail);box.appendChild(row);
   }
-  status.textContent='Разбор завершён · '+moves.length+' ходов · грубых ошибок: '+blunders+' · ошибок: '+mistakes+' · неточностей: '+inaccuracies+(truncated?' · показаны первые 30 ходов.':'')+' Оценки приблизительные, глубина 12.';
+  renderReviewSummary(counts,players);
+  const pct=p=>p.moves?Math.max(0,Math.min(100,Math.round((1-p.loss/p.moves)*100))):0;
+  status.textContent='Разбор завершён · '+moves.length+' ходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'%'+(truncated?' · показаны первые 40 ходов.':'')+' Показатели приблизительные, глубина 14.';
  }catch(err){
   status.textContent='Не удалось закончить разбор: '+err.message+'. Попробуй ещё раз позже.';
  }finally{button.disabled=false}
