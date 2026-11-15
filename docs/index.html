@@ -318,13 +318,13 @@ function returnSpace(r,c){if(board[r][c]){el('abilityHelp').textContent='Кле�
 function setMode(m){mode=m;if(m==='crazy')analysisCompatible=false;selected=null;legal=[];el('chaosAbilityPanel').style.display=m==='crazy'?'block':'none';renderAbilityPalette();el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
 function isSquareAttacked(r,c,color){let enemy=color==='w'?'b':'w';for(let y=0;y<N;y++)for(let x=0;x<N;x++){let p=board[y][x];if(!p||p.color!==enemy)continue;let dy=r-y,dx=c-x;if(p.type==='p'&&dy===(p.color==='w'?-1:1)&&Math.abs(dx)===1)return true;if(p.type==='n'&&Math.abs(dy)*Math.abs(dx)===2)return true;if(p.type==='k'&&Math.max(Math.abs(dy),Math.abs(dx))===1)return true;if((p.type==='r'&&(dy===0||dx===0))||(p.type==='b'&&Math.abs(dy)===Math.abs(dx))||(p.type==='q'&&(dy===0||dx===0||Math.abs(dy)===Math.abs(dx)))){let sy=Math.sign(dy),sx=Math.sign(dx),yy=y+sy,xx=x+sx,clear=true;while(yy!==r||xx!==c){if(board[yy][xx]||isBurned(yy,xx)){clear=false;break}yy+=sy;xx+=sx}if(clear)return true}}return false}
 function isKingInCheck(color){for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(board[y][x]&&board[y][x].type==='k'&&board[y][x].color===color)return isSquareAttacked(y,x,color);return false}
-function broadcastState(){if(conn&&conn.open)conn.send({type:'state',N,board,turn,space,history,last,mode,bioHazards,burnedCells,pendingBurn,pendingLasso,lassoCooldown})}
+function broadcastState(){if(conn&&conn.open)conn.send({type:'state',...serializeGameState()});persistLiveGameState()}
 function peerLibraryReady(){if(el('onlineStatus'))el('onlineStatus').textContent='Онлайн-модуль загружен.';joinFromLink()}
 function peerLibraryFailed(){if(el('onlineStatus'))el('onlineStatus').textContent='Не удалось загрузить онлайн-модуль. Проверь интернет и обнови страницу.'}
-function createOnlineRoom(){if(!window.Peer){el('onlineStatus').textContent='Не загрузился онлайн-модуль. Обнови страницу.';return}if(peer)peer.destroy();onlineRole='w';onlineSynced=true;peer=new Peer();el('onlineStatus').textContent='Создаю комнату…';peer.on('open',id=>{inviteUrl=location.origin+location.pathname+'?join='+encodeURIComponent(id);el('onlineStatus').textContent='Комната создана. Ссылка: '+inviteUrl});peer.on('connection',c=>{conn=c;c.on('open',()=>{el('onlineStatus').textContent='Друг подключился. Ты играешь белыми.';broadcastState()});c.on('data',s=>{if(s&&s.type==='state'&&s.turn===onlineRole){applyOnlineState(s);onlineSynced=true}})});peer.on('error',e=>el('onlineStatus').textContent='Ошибка сервера: '+e.type+(e.message?' — '+e.message:''))}
+function createOnlineRoom(){if(!window.Peer){el('onlineStatus').textContent='Не загрузился онлайн-модуль. Обнови страницу.';return}if(peer)peer.destroy();currentLiveGameId=null;lastAdminOverrideAt=null;onlineRole='w';onlineSynced=true;peer=new Peer();el('onlineStatus').textContent='Создаю комнату…';peer.on('open',async id=>{inviteUrl=location.origin+location.pathname+'?join='+encodeURIComponent(id);el('onlineStatus').textContent='Комната создана. Ссылка: '+inviteUrl;await createCloudLiveGame(id)});peer.on('connection',c=>{conn=c;c.on('open',()=>{el('onlineStatus').textContent='Друг подключился. Ты играешь белыми.';broadcastState()});c.on('data',s=>{if(s&&s.type==='state'&&s.turn===onlineRole){applyOnlineState(s);onlineSynced=true}})});peer.on('error',e=>el('onlineStatus').textContent='Ошибка сервера: '+e.type+(e.message?' — '+e.message:''))}
 function copyInvite(){if(!inviteUrl){el('onlineStatus').textContent='Сначала создай комнату.';return}if(navigator.clipboard)navigator.clipboard.writeText(inviteUrl).then(()=>el('onlineStatus').textContent='Ссылка скопирована!').catch(()=>prompt('Скопируй ссылку:',inviteUrl));else prompt('Скопируй ссылку:',inviteUrl)}
 function applyOnlineState(s){if(!s||!s.board)return;N=s.N;board=s.board;turn=s.turn;space=s.space||[];history=s.history||[];last=s.last||null;mode=s.mode||'normal';bioHazards=(s.bioHazards||[]).map(h=>({...h}));burnedCells=(s.burnedCells||[]).map(h=>({...h}));pendingBurn=s.pendingBurn?{...s.pendingBurn}:null;pendingLasso=s.pendingLasso?{...s.pendingLasso}:null;lassoCooldown={...(s.lassoCooldown||{w:0,b:0})};el('size').value=N;selected=null;legal=[];render()}
-function joinFromLink(){let id=new URLSearchParams(location.search).get('join');if(!id)return;if(!window.Peer){el('onlineStatus').textContent='Загружаю онлайн-модуль…';return;}onlineRole='b';onlineSynced=false;peer=new Peer();el('onlineStatus').textContent='Подключаюсь…';peer.on('open',()=>{conn=peer.connect(id);conn.on('open',()=>el('onlineStatus').textContent='Подключено! Ты играешь чёрными.');conn.on('data',s=>{if(s&&s.type==='state'&&(!onlineSynced||s.turn===onlineRole)){applyOnlineState(s);onlineSynced=true}})});peer.on('error',e=>el('onlineStatus').textContent='Ошибка сервера: '+e.type+(e.message?' — '+e.message:''))}
+function joinFromLink(){let id=new URLSearchParams(location.search).get('join');if(!id)return;if(!window.Peer){el('onlineStatus').textContent='Загружаю онлайн-модуль…';return;}onlineRole='b';onlineSynced=false;currentLiveGameId=null;lastAdminOverrideAt=null;peer=new Peer();el('onlineStatus').textContent='Подключаюсь…';peer.on('open',()=>{conn=peer.connect(id);conn.on('open',async()=>{el('onlineStatus').textContent='Подключено! Ты играешь чёрными.';await claimCloudLiveGame(id)});conn.on('data',s=>{if(s&&s.type==='state'&&(!onlineSynced||s.turn===onlineRole)){applyOnlineState(s);onlineSynced=true}})});peer.on('error',e=>el('onlineStatus').textContent='Ошибка сервера: '+e.type+(e.message?' — '+e.message:''))}
 function renderSpace(){let box=el('spaceList');box.innerHTML='';if(!space.length){box.textContent='Пока пусто.';return}space.forEach((p,i)=>{let b=document.createElement('button');b.className='space-piece';b.textContent=(p.color==='w'?'Белая ':'Чёрная ')+names[p.type]+' · вернуть';b.disabled=p.owner!==turn;b.onclick=()=>{returnMode=true;editor=false;el('editToggle').textContent='Включить редактор';el('abilityHelp').textContent='Выбери любую свободную клетку на поле, чтобы вернуть фигуру из космоса.';render()};box.appendChild(b)})}
 function renderPiecePalette(){let box=el('piecePalette');box.innerHTML='';[['p','Пешка','Pawn'],['n','Конь','Knight'],['b','Слон','Bishop'],['r','Ладья','Rook'],['q','Ферзь','Queen'],['k','Король','King']].forEach(([t,n,en])=>{let b=document.createElement('button');b.className='piece-choice'+(tool===t?' active':'');b.textContent=glyph[editColor][t]+' '+(currentLanguage==='en'?en:n);b.onclick=()=>setTool(t);box.appendChild(b)})}
 function renderAbilityPalette(){
@@ -449,6 +449,116 @@ async function checkAccountPermissions(){
   accountMessage('Аккаунт заблокирован'+until+'. Причина: '+(banResult.data.reason||'не указана'));
  }
 }
+
+function serializeGameState(){
+ return {N,board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null,mode,bioHazards:bioHazards.map(h=>({...h})),burnedCells:burnedCells.map(h=>({...h})),pendingBurn:pendingBurn?{...pendingBurn}:null,pendingLasso:pendingLasso?{...pendingLasso}:null,lassoCooldown:{...lassoCooldown},gameOver};
+}
+async function ensureAccountSession(){
+ if(accountUser)return accountUser;
+ if(!supabaseClient)return null;
+ const {data:{session}}=await supabaseClient.auth.getSession();
+ accountUser=session?.user||null;return accountUser;
+}
+async function createCloudLiveGame(roomId){
+ const user=await ensureAccountSession();
+ if(!user){el('onlineStatus').textContent='Комната создана. Для наблюдения создателя нужно войти в аккаунт.';return}
+ const {data,error}=await supabaseClient.from('live_games').insert({
+  room_id:roomId,host_user_id:user.id,mode,state:serializeGameState(),status:'waiting'
+ }).select('id').single();
+ if(error){el('onlineStatus').textContent='Комната создана. Облачное наблюдение не включено: '+error.message;return}
+ currentLiveGameId=data.id;lastAdminOverrideAt=null;startLiveGamePolling();
+ el('onlineStatus').textContent='Комната сохранена в облаке. Создатель сможет наблюдать партию.';
+}
+async function claimCloudLiveGame(roomId){
+ const user=await ensureAccountSession();
+ if(!user||!supabaseClient)return;
+ const {data,error}=await supabaseClient.rpc('claim_live_game',{p_room_id:roomId});
+ if(error){el('onlineStatus').textContent='Подключено. Облачное наблюдение не включено: '+error.message;return}
+ currentLiveGameId=data;lastAdminOverrideAt=null;startLiveGamePolling();
+}
+async function persistLiveGameState(){
+ if(!currentLiveGameId||!supabaseClient||!accountUser)return;
+ const {error}=await supabaseClient.from('live_games').update({
+  state:serializeGameState(),mode,status:gameOver?'finished':'active',updated_at:new Date().toISOString()
+ }).eq('id',currentLiveGameId);
+ if(error&&el('onlineStatus'))el('onlineStatus').textContent='Не удалось сохранить партию в облаке: '+error.message;
+}
+async function pollAdminGameOverride(){
+ if(!currentLiveGameId||!supabaseClient||!accountUser)return;
+ const {data,error}=await supabaseClient.from('live_games').select('admin_override,admin_override_at').eq('id',currentLiveGameId).maybeSingle();
+ if(error||!data||!data.admin_override||!data.admin_override_at||data.admin_override_at===lastAdminOverrideAt)return;
+ lastAdminOverrideAt=data.admin_override_at;applyOnlineState(data.admin_override);
+ if(el('onlineStatus'))el('onlineStatus').textContent='Создатель изменил состояние партии.';
+}
+function startLiveGamePolling(){
+ if(liveGamePollTimer)clearInterval(liveGamePollTimer);
+ liveGamePollTimer=setInterval(pollAdminGameOverride,1400);
+}
+async function adminRefreshLiveGames(){
+ if(accountRole!=='owner'){adminMessage('Только создатель может смотреть чужие партии.');return}
+ const {data,error}=await supabaseClient.rpc('owner_list_live_games');
+ if(error){adminMessage('Не удалось получить партии: '+error.message+' · выполни SQL-обновление livegames.');return}
+ const box=el('adminLiveGames');box.replaceChildren();
+ (data||[]).forEach(g=>{
+  const card=document.createElement('div');card.className='ability';
+  const title=document.createElement('strong');title.textContent=(g.host_username||'Игрок')+' vs '+(g.guest_username||'Ожидает соперника');
+  const detail=document.createElement('span');detail.textContent='Режим: '+g.mode+' · ход: '+(g.turn==='w'?'белые':'чёрные')+' · '+g.status+' · обновлено '+new Date(g.updated_at).toLocaleTimeString();
+  const open=document.createElement('button');open.textContent='Открыть и наблюдать';open.onclick=()=>adminOpenLiveGame(g.id);
+  card.append(title,detail,open);box.appendChild(card);
+ });
+ if(!(data||[]).length){const empty=document.createElement('div');empty.className='hint';empty.textContent='Сейчас нет сохранённых активных онлайн-партий.';box.appendChild(empty)}
+ adminMessage('Активных онлайн-партий: '+(data||[]).length+'.');
+}
+async function adminOpenLiveGame(id){
+ const {data,error}=await supabaseClient.rpc('owner_get_live_game',{p_game_id:id});
+ if(error){adminMessage('Не удалось открыть партию: '+error.message);return}
+ adminViewingGameId=id;adminViewerState=data.state;adminViewerSelected=null;
+ el('adminGameViewer').style.display='block';el('adminForceTurn').value=adminViewerState.turn||'w';
+ el('adminGameMeta').textContent='Партия '+id+' · '+data.mode+' · '+data.status+' · обновлено '+new Date(data.updated_at).toLocaleString();
+ renderAdminGameBoard();el('adminGameStatus').textContent='Выбери любую фигуру, затем клетку назначения. Ограничения ходов не применяются.';
+}
+function renderAdminGameBoard(){
+ const root=el('adminGameBoard');if(!adminViewerState||!Array.isArray(adminViewerState.board)){root.textContent='Некорректная позиция';return}
+ const n=adminViewerState.N||8;root.style.gridTemplateColumns='repeat('+n+',minmax(0,1fr))';root.innerHTML='';
+ const g={w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}};
+ for(let r=0;r<n;r++)for(let c=0;c<n;c++){
+  const p=adminViewerState.board[r][c],btn=document.createElement('button');
+  if(adminViewerSelected&&adminViewerSelected[0]===r&&adminViewerSelected[1]===c)btn.classList.add('picked');
+  if(p)btn.textContent=p.specialIcon||(p.ability&&p.ability!=='none'?'✦':g[p.color]?.[p.type]||'•');
+  btn.title=(p?(p.color==='w'?'Белые ':'Чёрные ')+(p.type||'фигура'):'Пусто')+' · '+String.fromCharCode(97+c)+(n-r);
+  btn.onclick=()=>adminBoardTap(r,c);root.appendChild(btn);
+ }
+}
+function adminBoardTap(r,c){
+ if(!adminViewerState)return;
+ const b=adminViewerState.board;
+ if(!adminViewerSelected){
+  if(!b[r][c]){el('adminGameStatus').textContent='Сначала выбери фигуру.';return}
+  adminViewerSelected=[r,c];renderAdminGameBoard();return;
+ }
+ const [sy,sx]=adminViewerSelected;
+ if(sy===r&&sx===c){adminViewerSelected=null;renderAdminGameBoard();return}
+ const moving=b[sy][sx];b[r][c]=moving;b[sy][sx]=null;if(moving)moving.moved=true;
+ adminViewerState.last={from:[sy,sx],to:[r,c]};adminViewerState.history=adminViewerState.history||[];
+ adminViewerState.history.push('🛠️ Uyuu147 принудительно переместил фигуру '+String.fromCharCode(97+sx)+(adminViewerState.N-sy)+' → '+String.fromCharCode(97+c)+(adminViewerState.N-r));
+ adminViewerSelected=null;renderAdminGameBoard();
+ el('adminGameStatus').textContent='Позиция изменена локально. Нажми «Применить изменения к партии», чтобы отправить её игрокам.';
+}
+function adminDeleteSelected(){
+ if(!adminViewerState||!adminViewerSelected){el('adminGameStatus').textContent='Сначала выбери фигуру.';return}
+ const [r,c]=adminViewerSelected;adminViewerState.board[r][c]=null;adminViewerSelected=null;renderAdminGameBoard();
+ el('adminGameStatus').textContent='Фигура удалена локально. Нажми «Применить изменения к партии».';
+}
+async function adminForceBoard(){
+ if(accountRole!=='owner'||!adminViewingGameId||!adminViewerState)return;
+ adminViewerState.turn=el('adminForceTurn').value;adminViewerState.gameOver=false;
+ const {error}=await supabaseClient.rpc('owner_force_live_game',{p_game_id:adminViewingGameId,p_state:adminViewerState});
+ if(error){el('adminGameStatus').textContent='Ошибка применения: '+error.message;return}
+ lastAdminOverrideAt=null;
+ el('adminGameStatus').textContent='Готово! Изменённая позиция отправлена игрокам.';
+ await adminRefreshLiveGames();
+}
+
 async function adminRefreshUsers(){
  if(!supabaseClient||!accountRole)return;
  const {data,error}=await supabaseClient.rpc('admin_list_users');
@@ -490,7 +600,7 @@ async function initAccount(){
 }
 
 initAccount();
-setup();renderPiecePalette();renderAbilityPalette();renderDescriptions();joinFromLink();setLanguage('ru');
+setup();renderPiecePalette();renderAbilityPalette();renderDescriptions();setMode('normal');joinFromLink();setLanguage('ru');
 </script>
 </body>
 </html>
