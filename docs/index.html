@@ -497,32 +497,92 @@ async function loadAccountProfile(){
 }
 
 const stockfishEvaluationCache=new Map();
-const openingBookCache=new Map();
-const reviewCategories=[
- {id:'brilliant',symbol:'💎',label:'Бриллиант',description:'Сильная жертва с хорошей компенсацией'},
- {id:'great',symbol:'!',label:'Отличный ход',description:'Спасает сложную позицию или меняет её ход'},
- {id:'best',symbol:'★',label:'Лучший ход',description:'Совпадает с первым выбором Stockfish'},
- {id:'excellent',symbol:'!',label:'Превосходно',description:'Почти не уступает лучшему ходу'},
- {id:'good',symbol:'✓',label:'Хороший ход',description:'Небольшая потеря преимущества'},
- {id:'book',symbol:'📖',label:'Дебютная теория',description:'Ход найден в базе партий мастеров'},
- {id:'inaccuracy',symbol:'?!',label:'Неточность',description:'Заметно ослабляет позицию'},
- {id:'mistake',symbol:'?',label:'Ошибка',description:'Серьёзно ухудшает положение'},
- {id:'miss',symbol:'⏳',label:'Упущенный шанс',description:'Не использована явная возможность'},
- {id:'blunder',symbol:'??',label:'Грубая ошибка',description:'Резко ухудшает оценку позиции'}
-];
+let localStockfishWorker=null,localStockfishInitPromise=null,localStockfishPending=null;
+let localStockfishQueue=Promise.resolve();
+function ensureLocalStockfish(){
+ if(localStockfishInitPromise)return localStockfishInitPromise;
+ localStockfishInitPromise=new Promise((resolve,reject)=>{
+  let settled=false,ready=false,initTimer=null;
+  const fail=message=>{
+   if(settled)return;
+   settled=true;if(initTimer)clearTimeout(initTimer);
+   try{localStockfishWorker?.terminate()}catch(_){}
+   localStockfishWorker=null;localStockfishInitPromise=null;
+   reject(new Error(message||'Не удалось запустить Stockfish в браузере.'));
+  };
+  try{
+   const workerUrl=new URL('stockfish-19-lite-single.js',document.baseURI);
+   workerUrl.hash=encodeURIComponent('https://cdn.jsdelivr.net/npm/stockfish@19.0.1/stockfish-19-lite-single.wasm');
+   localStockfishWorker=new Worker(workerUrl.href);
+  }catch(err){fail('Не удалось создать локальный движок: '+(err.message||err));return}
+  const worker=localStockfishWorker;
+  initTimer=setTimeout(()=>fail('Stockfish не загрузился за 60 секунд. Проверь подключение к CDN и повтори попытку.'),60000);
+  worker.onmessage=event=>{
+   const line=String(event.data||'').trim();
+   if(!line)return;
+   if(line==='uciok'&&!ready){worker.postMessage('setoption name Threads value 1');worker.postMessage('setoption name Hash value 64');worker.postMessage('isready');return}
+   if(line==='readyok'&&!ready){
+    ready=true;settled=true;if(initTimer)clearTimeout(initTimer);resolve(worker);return;
+   }
+   const pending=localStockfishPending;
+   if(!pending)return;
+   if(line.startsWith('info ')){
+    const depthMatch=line.match(/\\bdepth (\\d+)/),depth=depthMatch?Number(depthMatch[1]):0;
+    const cpMatch=line.match(/\\bscore cp (-?\\d+)/),mateMatch=line.match(/\\bscore mate (-?\\d+)/);
+    if((cpMatch||mateMatch)&&depth>=pending.depth){
+     pending.depth=depth;
+     pending.score=cpMatch?{type:'cp',value:Number(cpMatch[1])}:{type:'mate',value:Number(mateMatch[1])};
+     const pv=line.match(/\\bpv (.+)$/);if(pv)pending.pv=pv[1];
+    }
+   }else if(line.startsWith('bestmove ')){
+    const best=line.split(/\\s+/)[1]||'';
+    const done=localStockfishPending;localStockfishPending=null;
+    clearTimeout(done.timer);
+    if(!done.score){done.reject(new Error('Stockfish не вернул оценку позиции.'));return}
+    const side=done.fen.trim().split(/\\s+/)[1]||'w',sign=side==='w'?1:-1;
+    const data={
+     success:true,
+     evaluation:done.score.type==='cp'?done.score.value/100*sign:0,
+     mate:done.score.type==='mate'?done.score.value*sign:null,
+     bestmove:'bestmove '+best,
+     continuation:done.pv||''
+    };
+    done.resolve(data);
+   }
+  };
+  worker.onerror=event=>fail('Ошибка локального Stockfish: '+(event.message||'не удалось загрузить движок или WASM-файл.'));
+  worker.postMessage('uci');
+ });
+ return localStockfishInitPromise;
+}
+async function runLocalStockfish(fen){
+ const worker=await ensureLocalStockfish();
+ return new Promise((resolve,reject)=>{
+  const run=()=>{
+   if(!localStockfishWorker||localStockfishWorker!==worker){reject(new Error('Движок перезапущен. Повтори разбор.'));return}
+   if(localStockfishPending){reject(new Error('Движок занят другим расчётом.'));return}
+   const pending={fen,depth:0,score:null,pv:'',resolve,reject,timer:null};
+   pending.timer=setTimeout(()=>{
+    if(localStockfishPending===pending){localStockfishPending=null;worker.postMessage('stop');reject(new Error('Stockfish слишком долго анализировал позицию.'))}
+   },45000);
+   localStockfishPending=pending;
+   worker.postMessage('position fen '+fen);
+   worker.postMessage('go depth 14');
+  };
+  const task=localStockfishQueue.then(run,run);
+  localStockfishQueue=task.then(()=>undefined,()=>undefined);
+ });
+}
 async function stockfishEvaluate(fen){
  if(stockfishEvaluationCache.has(fen))return stockfishEvaluationCache.get(fen);
- const url='https://stockfish.online/api/s/v2.php?'+new URLSearchParams({fen,depth:'14'}).toString();
- const response=await fetch(url,{method:'GET',cache:'no-store'});
- if(!response.ok)throw new Error('Движок ответил HTTP '+response.status);
- const data=await response.json();
- if(!data.success)throw new Error(data.error||'Движок не смог оценить позицию');
- data.mate=data.mate===null||data.mate===undefined?null:Number(data.mate);
- if(!Number.isFinite(data.evaluation)&&data.mate===null)throw new Error('Движок вернул некорректную оценку');
- if(stockfishEvaluationCache.size>100)stockfishEvaluationCache.delete(stockfishEvaluationCache.keys().next().value);
+ const data=await runLocalStockfish(fen);
+ if(!Number.isFinite(data.evaluation)&&data.mate===null)throw new Error('Stockfish вернул некорректную оценку.');
+ if(stockfishEvaluationCache.size>160)stockfishEvaluationCache.delete(stockfishEvaluationCache.keys().next().value);
  stockfishEvaluationCache.set(fen,data);
  return data;
 }
+const openingBookCache=new Map();
+
 function uciSanFromFen(fen,uci){
  if(!fen||!uci||uci.length<4)return String(uci||'—');
  const fields=fen.trim().split(/\s+/),rows=fields[0].split('/'),turn=fields[1]||'w',ep=fields[3]||'-';
@@ -586,19 +646,8 @@ function fallbackOpeningMove(fen,uci){
  return false;
 }
 async function isOpeningBookMove(fen,uci){
- if(openingBookCache.has(fen))return openingBookCache.get(fen).has(uci)||fallbackOpeningMove(fen,uci);
- try{
-  const url='https://explorer.lichess.org/masters?'+new URLSearchParams({fen,moves:'12',topGames:'0'}).toString();
-  const response=await fetch(url,{cache:'no-store'});
-  if(!response.ok)throw new Error('Opening Explorer HTTP '+response.status);
-  const data=await response.json();
-  const moves=new Set((data.moves||[]).filter(x=>((x.white||0)+(x.draws||0)+(x.black||0))>0).map(x=>x.uci));
-  openingBookCache.set(fen,moves);
-  return moves.has(uci)||fallbackOpeningMove(fen,uci);
- }catch(_){
-  openingBookCache.set(fen,new Set());
-  return fallbackOpeningMove(fen,uci);
- }
+ // No browser-side request to third-party opening APIs: keep the common first moves available offline.
+ return fallbackOpeningMove(fen,uci);
 }
 
 function evalLabel(d){
@@ -712,6 +761,8 @@ async function analyzeGame(){
  const players={w:{moves:0,loss:0},b:{moves:0,loss:0}};
  const entries=[];
  try{
+  status.textContent='Загрузка локального Stockfish 19 (первый запуск скачает около 1,7 МБ)…';
+  await ensureLocalStockfish();
   for(let i=0;i<moves.length;i++){
    status.textContent='Stockfish анализирует ход '+(i+1)+' из '+moves.length+'…';
    const m=moves[i];
