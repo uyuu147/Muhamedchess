@@ -63,6 +63,24 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
 .review-pair-number{font-weight:800;color:#c6d3e5;font-size:12px;padding:4px 2px}
 .review-move{margin:0}
 
+.review-replay{margin:14px 0;padding:12px;border:1px solid #53647c;border-radius:12px;background:#151d29}
+.review-replay-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap}
+.review-board{position:relative;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));width:min(100%,360px);aspect-ratio:1;margin:0 auto;border:2px solid #9aa8b8;border-radius:4px;overflow:hidden}
+.review-square{display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:1;font-size:clamp(22px,5vw,39px);line-height:1}
+.review-square.light{background:#f0d9b5}
+.review-square.dark{background:#b58863}
+.review-square.review-from{box-shadow:inset 0 0 0 999px rgba(255,218,75,.38)}
+.review-square.review-to{box-shadow:inset 0 0 0 999px rgba(75,210,135,.42)}
+.review-square .review-piece-white{color:#fffdf4;text-shadow:1px 1px 2px #202020,-1px -1px 1px #202020}
+.review-square .review-piece-black{color:#171717;text-shadow:0 1px 1px #eee}
+.review-board-arrow{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+.review-replay-controls{display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-top:10px}
+.review-replay-controls button{flex:1;min-width:88px;font-size:12px;padding:8px 5px}
+.review-notation-cell{cursor:pointer;border-radius:7px;padding:4px}
+.review-notation-cell:hover{background:#344052}
+.review-notation-cell.selected-review{background:#3a4a60;outline:1px solid #8da5c2}
+
+
 .review-move{background:#202735;border:1px solid #344052;border-radius:11px;padding:9px}
 .review-move-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .review-move-title{font-weight:700;font-size:13px}
@@ -145,6 +163,16 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
   <button class="primary" id="analyzeGameButton" onclick="analyzeGame()">🤖 Оценить партию</button>
   <div class="hint" id="analysisStatus">Полный разбор партии: бриллианты, лучшие ходы, ошибки и точность обоих игроков. Доступно для стандартной партии 8×8 без способностей.</div>
   <div id="analysisSummary"></div>
+  <div id="analysisReplay" class="review-replay" style="display:none">
+   <div class="review-replay-head"><strong id="reviewReplayTitle">Просмотр хода</strong><span id="reviewReplayBadge"></span></div>
+   <div id="reviewBoard" class="review-board" aria-label="Доска разбора партии"></div>
+   <div id="reviewReplayText" class="hint"></div>
+   <div class="review-replay-controls">
+    <button type="button" onclick="stepReviewMove(-1)" id="reviewPrev">← Назад</button>
+    <button type="button" onclick="toggleReviewBest()" id="reviewBestToggle">Показать лучший ход</button>
+    <button type="button" onclick="stepReviewMove(1)" id="reviewNext">Вперёд →</button>
+   </div>
+  </div>
   <div class="review-move-list" id="analysisResults"></div>
  </div>
  <div class="panel hint">Это браузерная версия игры. Для работы и сохранения прогресса открой сайт по постоянной ссылке GitHub Pages.</div>
@@ -555,10 +583,10 @@ function ensureLocalStockfish(){
  });
  return localStockfishInitPromise;
 }
-async function runLocalStockfish(fen){
- const worker=await ensureLocalStockfish();
- return new Promise((resolve,reject)=>{
-  const run=()=>{
+function runLocalStockfish(fen){
+ const task=localStockfishQueue.then(async()=>{
+  const worker=await ensureLocalStockfish();
+  return new Promise((resolve,reject)=>{
    if(!localStockfishWorker||localStockfishWorker!==worker){reject(new Error('Движок перезапущен. Повтори разбор.'));return}
    if(localStockfishPending){reject(new Error('Движок занят другим расчётом.'));return}
    const pending={fen,depth:0,score:null,pv:'',resolve,reject,timer:null};
@@ -568,10 +596,10 @@ async function runLocalStockfish(fen){
    localStockfishPending=pending;
    worker.postMessage('position fen '+fen);
    worker.postMessage('go depth 14');
-  };
-  const task=localStockfishQueue.then(run,run);
-  localStockfishQueue=task.then(()=>undefined,()=>undefined);
+  });
  });
+ localStockfishQueue=task.then(()=>undefined,()=>undefined);
+ return task;
 }
 async function stockfishEvaluate(fen){
  if(stockfishEvaluationCache.has(fen))return stockfishEvaluationCache.get(fen);
@@ -582,6 +610,7 @@ async function stockfishEvaluate(fen){
  return data;
 }
 const openingBookCache=new Map();
+let reviewEntries=[],reviewMoveIndex=0,reviewShowBest=false;
 
 function uciSanFromFen(fen,uci){
  if(!fen||!uci||uci.length<4)return String(uci||'—');
@@ -730,17 +759,114 @@ function renderAdvantageTimeline(entries){
  const axis=document.createElement('div');axis.className='review-eval-axis';axis.innerHTML='<span>−5 · перевес чёрных</span><span>0 · равно</span><span>+5 · перевес белых</span>';wrap.appendChild(axis);
  summary.appendChild(wrap);
 }
+function reviewBoardFromFen(fen){
+ const rows=(fen||'').trim().split(/\\s+/)[0].split('/');
+ if(rows.length!==8)throw new Error('Некорректная позиция в записи партии.');
+ const board=Array.from({length:8},()=>Array(8).fill(null));
+ for(let r=0;r<8;r++){
+  let c=0;
+  for(const token of rows[r]){
+   if(/[1-8]/.test(token)){c+=Number(token);continue}
+   if(c>=8)throw new Error('Некорректная строка шахматной доски.');
+   board[r][c++]=token;
+  }
+ }
+ return board;
+}
+function applyReviewUci(board,fen,uci){
+ const result=board.map(row=>row.slice());
+ if(!uci||uci.length<4)return result;
+ const files='abcdefgh',fc=files.indexOf(uci[0]),fr=8-Number(uci[1]),tc=files.indexOf(uci[2]),tr=8-Number(uci[3]);
+ if(fc<0||tc<0||fr<0||tr<0)return result;
+ const piece=result[fr][fc];if(!piece)return result;
+ const fields=(fen||'').trim().split(/\\s+/),ep=fields[3]||'-',type=piece.toLowerCase();
+ if(type==='p'&&fc!==tc&&!result[tr][tc]&&files[tc]+(8-tr)===ep)result[fr][tc]=null;
+ if(type==='k'&&Math.abs(tc-fc)===2){
+  const rookFrom=tc>fc?7:0,rookTo=tc>fc?tc-1:tc+1;
+  result[fr][rookTo]=result[fr][rookFrom];result[fr][rookFrom]=null;
+ }
+ result[fr][fc]=null;
+ let moved=piece;
+ if(type==='p'&&uci.length>4)moved=piece===piece.toUpperCase()?uci[4].toUpperCase():uci[4].toLowerCase();
+ result[tr][tc]=moved;
+ return result;
+}
+function renderReviewBoard(entry,useBest){
+ const root=el('reviewBoard');if(!root)return;
+ const uci=useBest?entry.best:entry.uci;
+ const board=reviewBoardFromFen(entry.fenBefore);
+ const after=applyReviewUci(board,entry.fenBefore,uci);
+ root.replaceChildren();
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+  const cell=document.createElement('div');
+  cell.className='review-square '+((r+c)%2?'dark':'light');
+  if(uci&&uci.length>=4){
+   const fromC='abcdefgh'.indexOf(uci[0]),fromR=8-Number(uci[1]),toC='abcdefgh'.indexOf(uci[2]),toR=8-Number(uci[3]);
+   if(r===fromR&&c===fromC)cell.classList.add('review-from');
+   if(r===toR&&c===toC)cell.classList.add('review-to');
+  }
+  const piece=after[r][c];
+  if(piece){
+   const span=document.createElement('span');
+   span.className=piece===piece.toUpperCase()?'review-piece-white':'review-piece-black';
+   span.textContent=glyph[piece===piece.toUpperCase()?'w':'b'][piece.toLowerCase()]||piece;
+   cell.appendChild(span);
+  }
+  if(c===0||r===7){
+   const coord=document.createElement('span');coord.style.cssText='position:absolute;font-size:9px;color:#242424;left:2px;top:1px;text-shadow:none';
+   coord.textContent=c===0?String(8-r):'abcdefgh'[c];cell.appendChild(coord);
+  }
+  root.appendChild(cell);
+ }
+ if(uci&&uci.length>=4){
+  const fromC='abcdefgh'.indexOf(uci[0]),fromR=8-Number(uci[1]),toC='abcdefgh'.indexOf(uci[2]),toR=8-Number(uci[3]);
+  if(fromC>=0&&toC>=0&&fromR>=0&&toR>=0){
+   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+   svg.setAttribute('class','review-board-arrow');svg.setAttribute('viewBox','0 0 800 800');svg.setAttribute('preserveAspectRatio','none');
+   const defs=document.createElementNS('http://www.w3.org/2000/svg','defs'),marker=document.createElementNS('http://www.w3.org/2000/svg','marker');
+   marker.setAttribute('id','reviewArrowHead');marker.setAttribute('markerWidth','7');marker.setAttribute('markerHeight','7');marker.setAttribute('refX','5');marker.setAttribute('refY','3');marker.setAttribute('orient','auto');
+   const tip=document.createElementNS('http://www.w3.org/2000/svg','path');tip.setAttribute('d','M0,0 L6,3 L0,6 Z');tip.setAttribute('fill',useBest?'#28a866':'#e1a92b');marker.appendChild(tip);defs.appendChild(marker);svg.appendChild(defs);
+   const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+   line.setAttribute('x1',String(fromC*100+50));line.setAttribute('y1',String(fromR*100+50));line.setAttribute('x2',String(toC*100+50));line.setAttribute('y2',String(toR*100+50));
+   line.setAttribute('stroke',useBest?'#28a866':'#e1a92b');line.setAttribute('stroke-width','13');line.setAttribute('stroke-linecap','round');line.setAttribute('opacity','.78');line.setAttribute('marker-end','url(#reviewArrowHead)');
+   svg.appendChild(line);root.appendChild(svg);
+  }
+ }
+}
+function showReviewMove(index,useBest=false){
+ if(!reviewEntries.length)return;
+ reviewMoveIndex=Math.max(0,Math.min(reviewEntries.length-1,index));reviewShowBest=!!useBest;
+ const entry=reviewEntries[reviewMoveIndex],replay=el('analysisReplay');
+ if(replay)replay.style.display='block';
+ const title=el('reviewReplayTitle'),badge=el('reviewReplayBadge'),detail=el('reviewReplayText'),toggle=el('reviewBestToggle');
+ if(title)title.textContent='Ход '+entry.fullmove+' · '+(entry.color==='w'?'Белые':'Чёрные')+' · '+entry.san;
+ if(badge){badge.className='review-badge '+entry.kind;badge.textContent=entry.category.symbol+' '+entry.category.label}
+ if(detail)detail.textContent=reviewShowBest
+  ?'Показан лучший вариант Stockfish: '+entry.bestSan+'. Стрелка показывает ход движка, фигуры уже переставлены на доске.'
+  :'Показан ход из партии: '+entry.san+'. Стрелка показывает, куда реально пошла фигура. Оценка после хода: '+entry.eval+'.';
+ if(toggle){toggle.disabled=!entry.best||entry.best==='(none)';toggle.textContent=reviewShowBest?'Показать сыгранный ход':'Показать лучший ход: '+entry.bestSan}
+ const prev=el('reviewPrev'),next=el('reviewNext');
+ if(prev)prev.disabled=reviewMoveIndex===0;if(next)next.disabled=reviewMoveIndex===reviewEntries.length-1;
+ renderReviewBoard(entry,reviewShowBest);
+ document.querySelectorAll('.review-notation-cell.selected-review').forEach(x=>x.classList.remove('selected-review'));
+ const selected=el('analysisResults')?.querySelector('[data-review-index="'+reviewMoveIndex+'"]');if(selected)selected.classList.add('selected-review');
+}
+function toggleReviewBest(){showReviewMove(reviewMoveIndex,!reviewShowBest)}
+function stepReviewMove(delta){showReviewMove(reviewMoveIndex+delta,false)}
 function renderMoveReview(entries){
- const box=el('analysisResults');box.replaceChildren();
+ const box=el('analysisResults');box.replaceChildren();reviewEntries=entries;
  const grouped=new Map();
- entries.forEach(entry=>{if(!grouped.has(entry.fullmove))grouped.set(entry.fullmove,{});grouped.get(entry.fullmove)[entry.color]=entry});
+ entries.forEach((entry,i)=>{entry.index=i;if(!grouped.has(entry.fullmove))grouped.set(entry.fullmove,{});grouped.get(entry.fullmove)[entry.color]=entry});
  grouped.forEach((pair,number)=>{
   const row=document.createElement('div');row.className='review-notation-row';
   const no=document.createElement('strong');no.className='review-notation-number';no.textContent=number+'.';row.appendChild(no);
   ['w','b'].forEach(color=>{
    const entry=pair[color],cell=document.createElement('div');cell.className='review-notation-cell';
    if(entry){
-    const move=document.createElement('strong');move.className='review-notation-san';move.textContent=entry.san||uciSanFromFen(entry.fenBefore,entry.uci);cell.appendChild(move);
+    cell.dataset.reviewIndex=String(entry.index);
+    cell.title='Нажми, чтобы посмотреть этот ход на доске';
+    cell.onclick=()=>showReviewMove(entry.index,false);
+    const move=document.createElement('strong');move.className='review-notation-san';move.textContent=entry.san;cell.appendChild(move);
     const badge=document.createElement('span');badge.className='review-badge '+entry.kind;badge.textContent=entry.category.symbol+' '+entry.category.label;cell.appendChild(badge);
     const score=document.createElement('small');score.textContent='Оценка: '+entry.eval+' · лучший: '+entry.bestSan;cell.appendChild(score);
     if(entry.shift){const swing=document.createElement('span');swing.className='review-swing';swing.textContent='ПЕРЕВЕС СМЕНИЛСЯ';cell.appendChild(swing)}
@@ -749,6 +875,7 @@ function renderMoveReview(entries){
   });
   box.appendChild(row);
  });
+ if(entries.length)showReviewMove(0,false);
 }
 
 async function analyzeGame(){
@@ -756,7 +883,7 @@ async function analyzeGame(){
  if(!analysisCompatible||N!==8||!['normal','special'].includes(mode)){status.textContent='Эту партию нельзя разобрать обычным шахматным движком: использовались нестандартные правила, размер поля или редактор.';return}
  if(!analysisMoves.length){status.textContent='Сначала сделай несколько ходов в стандартной партии 8×8.';return}
  const moves=analysisMoves.slice(0,80),truncated=analysisMoves.length>moves.length;
- summary.replaceChildren();box.replaceChildren();button.disabled=true;
+ summary.replaceChildren();box.replaceChildren();el('analysisReplay').style.display='none';reviewEntries=[];reviewMoveIndex=0;reviewShowBest=false;button.disabled=true;
  const counts=Object.fromEntries(reviewCategories.map(c=>[c.id,0]));
  const players={w:{moves:0,loss:0},b:{moves:0,loss:0}};
  const entries=[];
@@ -777,14 +904,14 @@ async function analyzeGame(){
    const delta=whiteEval-previousWhite;
    const shift=Math.abs(delta)>=0.8&&previousWhite*whiteEval<0;
    const fullmove=Math.floor(i/2)+1;
-   const best= parseBestMove(before.bestmove);entries.push({color:m.color,fullmove,san:m.san||uciSanFromFen(m.fenBefore,m.uci),kind,category:reviewCategories.find(c=>c.id===kind),eval:evalLabel(after),score:whiteEval,delta,best,bestSan:uciSanFromFen(m.fenBefore,best),shift});
+   const best= parseBestMove(before.bestmove);entries.push({color:m.color,fullmove,san:m.san||uciSanFromFen(m.fenBefore,m.uci),uci:m.uci,fenBefore:m.fenBefore,kind,category:reviewCategories.find(c=>c.id===kind),eval:evalLabel(after),score:whiteEval,delta,best,bestSan:uciSanFromFen(m.fenBefore,best),shift});
   }
   renderReviewSummary(counts,players);
   renderAdvantageTimeline(entries);
   renderMoveReview(entries);
   const pct=p=>p.moves?Math.max(0,Math.min(100,Math.round((1-p.loss/p.moves)*100))):0;
   const shifts=entries.filter(x=>x.shift).length;
-  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' Оценка приблизительная, глубина 14.';
+  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' · Нажми на любой ход, чтобы увидеть его на доске и сравнить с лучшим вариантом Stockfish.'+' Оценка Stockfish 19 Lite, глубина 14.';
  }catch(err){
   status.textContent='Не удалось закончить разбор: '+err.message+'. Попробуй ещё раз позже.';
  }finally{button.disabled=false}
