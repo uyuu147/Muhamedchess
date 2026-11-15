@@ -41,6 +41,15 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
   <div class="hint" id="accountStatus">Войди или создай аккаунт, чтобы увидеть профиль и рейтинги.</div>
   <div class="ability-list" id="accountRatings"></div>
  </div>
+ <div class="panel" id="adminPanel" style="display:none"><h2>Панель создателя · Uyuu147</h2>
+  <div class="hint" id="adminStatus">Управление игроками и модераторами.</div>
+  <div class="field"><label for="adminEmail">Email игрока</label><input id="adminEmail" type="email" placeholder="player@example.com" style="flex:1;min-width:150px"></div>
+  <div class="field"><label for="adminReason">Причина</label><input id="adminReason" placeholder="Причина блокировки" value="Нарушение правил" style="flex:1;min-width:150px"></div>
+  <div class="controls"><button onclick="adminBan(24)">Бан на 24 ч</button><button onclick="adminBan(168)">Бан на 7 дней</button><button class="danger" onclick="adminBan(null)">Навсегда</button><button onclick="adminUnban()">Разблокировать</button></div>
+  <div class="field" id="adminRoleControls" style="display:none"><label for="adminRole">Роль</label><select id="adminRole"><option value="admin">Администратор</option><option value="moderator">Модератор</option><option value="none">Снять права</option></select><button onclick="adminSetRole()">Назначить</button></div>
+  <div class="field"><button onclick="adminRefreshUsers()">Обновить список игроков</button></div>
+  <div class="ability-list" id="adminUsers"></div>
+ </div>
  <div class="panel">
   
   <div class="topbar"><div class="turn" id="turn">Ход: <b>Белые</b></div><div class="controls"><button onclick="undo()">↶ Отмена</button><button onclick="flip()">⇅ Вид</button><button class="danger" onclick="resign()">Сдаться</button><button onclick="offerDraw()">Ничья</button><button class="primary" onclick="newGame()">Новая игра</button></div></div>
@@ -59,6 +68,11 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
  <div class="panel"><h2>В космосе</h2><div id="spaceList" class="small">Пока пусто.</div><div class="hint">Фигуры, отправленные в космос, можно вернуть на любую свободную клетку в свой ход.</div></div>
  <div class="panel"><h2>Описание способностей</h2><div class="ability-list" id="abilityDescriptions"></div></div>
  <div class="panel"><h2>История партии</h2><div id="history">Партия началась.</div></div>
+ <div class="panel" id="analysisPanel"><h2>Разбор партии · Stockfish</h2>
+  <button class="primary" id="analyzeGameButton" onclick="analyzeGame()">🤖 Оценить партию</button>
+  <div class="hint" id="analysisStatus">Движок оценивает ходы и показывает лучший вариант. Доступно для стандартной партии 8×8 без способностей.</div>
+  <div class="ability-list" id="analysisResults"></div>
+ </div>
  <div class="panel hint">Это браузерная версия игры. Для работы и сохранения прогресса открой сайт по постоянной ссылке GitHub Pages.</div>
 </aside>
 </div>
@@ -87,6 +101,7 @@ const abilities=[
 ];
 let N=8,board=[],turn='w',selected=null,legal=[],flipped=false,editor=false,editColor='w',tool='p',abilityChoice='none',space=[],history=[],snapshots=[],last=null,returnMode=false,gameOver=false,mode='normal',peer=null,conn=null,onlineRole=null,inviteUrl='',onlineSynced=false,bioHazards=[],burnedCells=[],pendingBurn=null,pendingLasso=null,lassoCooldown={w:0,b:0},specialVisual=null,specialVisualTimer=null;
 
+let analysisMoves=[],analysisCompatible=true,accountBlocked=false,accountRole=null;
 let currentLanguage='ru';
 const translations={
  'Особые шахматы · 2 игрока · одно устройство':'Special chess · 2 players · same device',
@@ -184,15 +199,15 @@ languageObserver.observe(document.body,{subtree:true,childList:true,characterDat
 const el=id=>document.getElementById(id);
 function emptyBoard(n){return Array.from({length:n},()=>Array(n).fill(null))}
 function piece(type,color,ability='none'){return {type,color,ability,id:Math.random().toString(36).slice(2,9),moved:false}}
-function setup(){gameOver=false;board=emptyBoard(N);let order=N===8?['r','n','b','q','k','b','n','r']:N===12?['r','n','b','q','k','b','n','r','b','n','q','r']:['r','n','b','q','k','b','n','r','b','n','q','r','r','n','b','q'];for(let x=0;x<N;x++){board[N-1][x]=piece(order[x], 'w');board[N-2][x]=piece('p','w');board[0][x]=piece(order[x],'b');board[1][x]=piece('p','b')}turn='w';selected=null;legal=[];space=[];history=[];snapshots=[];last=null;bioHazards=[];burnedCells=[];pendingBurn=null;pendingLasso=null;lassoCooldown={w:0,b:0};render()}
+function setup(){gameOver=false;analysisMoves=[];analysisCompatible=N===8;board=emptyBoard(N);let order=N===8?['r','n','b','q','k','b','n','r']:N===12?['r','n','b','q','k','b','n','r','b','n','q','r']:['r','n','b','q','k','b','n','r','b','n','q','r','r','n','b','q'];for(let x=0;x<N;x++){board[N-1][x]=piece(order[x], 'w');board[N-2][x]=piece('p','w');board[0][x]=piece(order[x],'b');board[1][x]=piece('p','b')}turn='w';selected=null;legal=[];space=[];history=[];snapshots=[];last=null;bioHazards=[];burnedCells=[];pendingBurn=null;pendingLasso=null;lassoCooldown={w:0,b:0};render()}
 function newGame(){setup();broadcastState()}
 function resign(){if(gameOver)return;if(!confirm((turn==='w'?'Белые':'Чёрные')+' сдаются?'))return;gameOver=true;let winner=turn==='w'?'Чёрные':'Белые';history.push('🏳️ '+(turn==='w'?'Белые':'Чёрные')+' сдались. Победа: '+winner+'.');selected=null;legal=[];render();broadcastState()}
 function offerDraw(){if(gameOver)return;if(confirm((turn==='w'?'Белые':'Чёрные')+' предлагают ничью. Соперник принимает?')){gameOver=true;history.push('🤝 Игроки согласились на ничью.');selected=null;legal=[];render();broadcastState()}else{history.push('Ничья отклонена.');render()}}
-function cloneState(){return {board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null,bioHazards:bioHazards.map(h=>({...h})),burnedCells:burnedCells.map(h=>({...h})),pendingBurn:pendingBurn?{...pendingBurn}:null,pendingLasso:pendingLasso?{...pendingLasso}:null,lassoCooldown:{...lassoCooldown}}}
+function cloneState(){return {board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null,bioHazards:bioHazards.map(h=>({...h})),burnedCells:burnedCells.map(h=>({...h})),pendingBurn:pendingBurn?{...pendingBurn}:null,pendingLasso:pendingLasso?{...pendingLasso}:null,lassoCooldown:{...lassoCooldown},analysisMoves:analysisMoves.map(m=>({...m})),analysisCompatible}}
 function save(){snapshots.push(cloneState());if(snapshots.length>80)snapshots.shift()}
-function restore(s){board=s.board;turn=s.turn;space=s.space;history=s.history;last=s.last;bioHazards=(s.bioHazards||[]).map(h=>({...h}));burnedCells=(s.burnedCells||[]).map(h=>({...h}));pendingBurn=s.pendingBurn?{...s.pendingBurn}:null;pendingLasso=s.pendingLasso?{...s.pendingLasso}:null;lassoCooldown={...(s.lassoCooldown||{w:0,b:0})};selected=null;legal=[];render()}
+function restore(s){board=s.board;turn=s.turn;space=s.space;history=s.history;last=s.last;bioHazards=(s.bioHazards||[]).map(h=>({...h}));burnedCells=(s.burnedCells||[]).map(h=>({...h}));pendingBurn=s.pendingBurn?{...s.pendingBurn}:null;pendingLasso=s.pendingLasso?{...s.pendingLasso}:null;lassoCooldown={...(s.lassoCooldown||{w:0,b:0})};analysisMoves=(s.analysisMoves||[]).map(m=>({...m}));analysisCompatible=s.analysisCompatible!==false;selected=null;legal=[];render()}
 function undo(){if(snapshots.length){restore(snapshots.pop());broadcastState()}}
-function changeSize(n){N=n;setup();el('board').className='n'+N;render();broadcastState()}
+function changeSize(n){N=n;setup();if(N!==8)analysisCompatible=false;el('board').className='n'+N;render();broadcastState()}
 function coords(r,c){return String.fromCharCode(97+c)+(N-r)}
 function inside(r,c){return r>=0&&r<N&&c>=0&&c<N}
 function isBurned(r,c){return burnedCells.some(h=>h.r===r&&h.c===c)}
@@ -228,11 +243,22 @@ if(specialVisual){
  root.appendChild(overlay);
 }
 el('turn').innerHTML=(gameOver?'<b>Партия завершена</b>':'Ход: <b>'+(turn==='w'?'Белые':'Чёрные')+'</b>')+(editor?' · редактор':'')+(!gameOver&&mode==='normal'&&isKingInCheck(turn)?' · ШАХ!':'');el('history').textContent=history.length?history.join('\n'):'Партия началась.';renderSpace()}
-function tap(r,c){if(pendingLasso){let q=board[r][c];if(!q||q.color===pendingLasso.owner){el('abilityHelp').textContent='Выбери чужую фигуру для лассо.';return}q.lassoed=true;lassoCooldown[pendingLasso.owner]=3;history.push('🪢 Лассо поймало '+names[q.type]+' на '+coords(r,c)+'. Фигура не сможет двигаться до конца своего следующего хода.');pendingLasso=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();render();broadcastState();return}if(pendingBurn){if(board[r][c]||isBurned(r,c)){el('abilityHelp').textContent='Выбери свободную клетку, которая ещё не прожжена.';return}burnedCells.push({r,c,countdown:3});history.push('🔥 Прожигание: клетка '+coords(r,c)+' исчезла на 2 хода.');pendingBurn=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();render();broadcastState();return}if(returnMode){returnSpace(r,c);return}if(onlineRole&&turn!==onlineRole){el('onlineStatus').textContent='Сейчас ход соперника.';return}if(editor){if(tool==='erase')board[r][c]=null;else if(tool==='return'){returnSpace(r,c);return}else board[r][c]=piece(tool,editColor);render();return}
-if(abilityChoice!=='none'&&board[r][c]&&board[r][c].color===turn){board[r][c].ability=abilityChoice;el('abilityHelp').textContent='Назначено: '+abilities.find(a=>a[0]===abilityChoice)[1]+'. Теперь сделай ход этой фигурой.';abilityChoice='none';renderAbilityPalette();render();return}
+function tap(r,c){if(accountBlocked){accountMessage('Аккаунт временно заблокирован.');return}if(pendingLasso){let q=board[r][c];if(!q||q.color===pendingLasso.owner){el('abilityHelp').textContent='Выбери чужую фигуру для лассо.';return}q.lassoed=true;lassoCooldown[pendingLasso.owner]=3;history.push('🪢 Лассо поймало '+names[q.type]+' на '+coords(r,c)+'. Фигура не сможет двигаться до конца своего следующего хода.');pendingLasso=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();render();broadcastState();return}if(pendingBurn){if(board[r][c]||isBurned(r,c)){el('abilityHelp').textContent='Выбери свободную клетку, которая ещё не прожжена.';return}burnedCells.push({r,c,countdown:3});history.push('🔥 Прожигание: клетка '+coords(r,c)+' исчезла на 2 хода.');pendingBurn=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();render();broadcastState();return}if(returnMode){returnSpace(r,c);return}if(onlineRole&&turn!==onlineRole){el('onlineStatus').textContent='Сейчас ход соперника.';return}if(editor){analysisCompatible=false;if(tool==='erase')board[r][c]=null;else if(tool==='return'){returnSpace(r,c);return}else board[r][c]=piece(tool,editColor);render();return}
+if(abilityChoice!=='none'&&board[r][c]&&board[r][c].color===turn){analysisCompatible=false;board[r][c].ability=abilityChoice;el('abilityHelp').textContent='Назначено: '+abilities.find(a=>a[0]===abilityChoice)[1]+'. Теперь сделай ход этой фигурой.';abilityChoice='none';renderAbilityPalette();render();return}
 if(selected){if(legal.some(([y,x])=>y===r&&x===c)){move(selected[0],selected[1],r,c);return}if(selected[0]===r&&selected[1]===c){selected=null;legal=[];render();return}}
 let p=board[r][c];if(p&&p.lassoed){el('abilityHelp').textContent='🪢 Эта фигура поймана лассо и не может двигаться до конца своего хода.';selected=null;legal=[];render();return}if(p&&(mode==='crazy'||p.color===turn)){selected=[r,c];legal=[];if(mode==='crazy'){for(let yy=0;yy<N;yy++)for(let xx=0;xx<N;xx++)if((yy!==r||xx!==c)&&!isBurned(yy,xx))legal.push([yy,xx])}else legal=pseudo(r,c);render()}else{selected=null;legal=[];render()}}
-function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x],airplaneCapture=mode==='special'&&p.type==='b'&&target&&target.type==='r';tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type];history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect([r,c],[y,x],p.type,target&&target.type);if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(mode==='normal'&&isKingInCheck(turn))history.push('♔ ШАХ королю '+(turn==='w'?'белых':'чёрных')+'!');render();broadcastState()}
+
+function hasCustomAbilities(){return board.some(row=>row.some(q=>q&&q.ability&&q.ability!=='none'))}
+function analysisFEN(){
+ const code={p:'p',n:'n',b:'b',r:'r',q:'q',k:'k'};
+ const rows=board.map(row=>{let out='',empty=0;for(const q of row){if(!q){empty++;continue}if(empty){out+=empty;empty=0}let ch=code[q.type]||'p';out+=q.color==='w'?ch.toUpperCase():ch}if(empty)out+=empty;return out}).join('/');
+ let rights='';
+ const wk=board[7][4],bk=board[0][4];
+ if(wk&&wk.type==='k'&&wk.color==='w'&&!wk.moved){if(board[7][7]?.type==='r'&&board[7][7].color==='w'&&!board[7][7].moved)rights+='K';if(board[7][0]?.type==='r'&&board[7][0].color==='w'&&!board[7][0].moved)rights+='Q'}
+ if(bk&&bk.type==='k'&&bk.color==='b'&&!bk.moved){if(board[0][7]?.type==='r'&&board[0][7].color==='b'&&!board[0][7].moved)rights+='k';if(board[0][0]?.type==='r'&&board[0][0].color==='b'&&!board[0][0].moved)rights+='q'}
+ return rows+' '+turn+' '+(rights||'-')+' - 0 '+(Math.floor(analysisMoves.length/2)+1);
+}
+function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];let trackMove=analysisCompatible&&N===8&&(mode==='normal'||mode==='special')&&!hasCustomAbilities()&&p&&p.ability==='none';if(analysisCompatible&&!trackMove)analysisCompatible=false;let fenBefore=trackMove?analysisFEN():null,uciMove=coords(r,c)+coords(y,x)+(p&&p.type==='p'&&(y===0||y===N-1)?'q':'');let movingColor=turn;let airplaneCapture=mode==='special'&&p.type==='b'&&target&&target.type==='r';tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type];history.push((history.length+1)+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect([r,c],[y,x],p.type,target&&target.type);if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(trackMove&&analysisCompatible&&!hasCustomAbilities())analysisMoves.push({fenBefore,fenAfter:analysisFEN(),uci:uciMove,color:movingColor});else if(trackMove)analysisCompatible=false;if(mode==='normal'&&isKingInCheck(turn))history.push('♔ ШАХ королю '+(turn==='w'?'белых':'чёрных')+'!');render();broadcastState()}
 function triggerSpecialEffect(from,to,pieceType,capturedType){
  let kind='flash',icon='✨',message='✨ Вспышка после хода!';
  if(capturedType){
@@ -266,7 +292,7 @@ return ''}
 function tickBurnedCells(){burnedCells=burnedCells.map(h=>({...h,countdown:h.countdown-1})).filter(h=>h.countdown>0)}
 function processBioHazards(){let remaining=[];for(let h of bioHazards){if(h.skip){h.skip=false;remaining.push(h);continue}h.countdown--;if(h.countdown>0){remaining.push(h);continue}let targets=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++){let q=board[y][x];if(q&&(mode==='crazy'||q.type!=='k'))targets.push({y,x,d:Math.max(Math.abs(y-h.r),Math.abs(x-h.c))})}targets.sort((a,b)=>a.d-b.d);let destroyed=[];for(let t of targets.slice(0,2)){if(board[t.y][t.x]){destroyed.push(coords(t.y,t.x));board[t.y][t.x]=null}}history.push('☣️ Биооружие на '+coords(h.r,h.c)+' сработало! Уничтожены две ближайшие фигуры: '+(destroyed.join(', ')||'целей нет'));}bioHazards=remaining}
 function returnSpace(r,c){if(board[r][c]){el('abilityHelp').textContent='Клетка занята. Выбери свободную клетку.';return}let i=space.findIndex(p=>p.owner===turn);if(i<0){el('abilityHelp').textContent='В космосе нет твоих фигур.';return}save();let p=space.splice(i,1)[0];board[r][c]=piece(p.type,p.color,p.ability);returnMode=false;turn=turn==='w'?'b':'w';history.push('🪐 '+names[p.type]+' вернулась из космоса на '+coords(r,c));render()}
-function setMode(m){mode=m;selected=null;legal=[];el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
+function setMode(m){mode=m;if(m==='crazy')analysisCompatible=false;selected=null;legal=[];el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
 function isSquareAttacked(r,c,color){let enemy=color==='w'?'b':'w';for(let y=0;y<N;y++)for(let x=0;x<N;x++){let p=board[y][x];if(!p||p.color!==enemy)continue;let dy=r-y,dx=c-x;if(p.type==='p'&&dy===(p.color==='w'?-1:1)&&Math.abs(dx)===1)return true;if(p.type==='n'&&Math.abs(dy)*Math.abs(dx)===2)return true;if(p.type==='k'&&Math.max(Math.abs(dy),Math.abs(dx))===1)return true;if((p.type==='r'&&(dy===0||dx===0))||(p.type==='b'&&Math.abs(dy)===Math.abs(dx))||(p.type==='q'&&(dy===0||dx===0||Math.abs(dy)===Math.abs(dx)))){let sy=Math.sign(dy),sx=Math.sign(dx),yy=y+sy,xx=x+sx,clear=true;while(yy!==r||xx!==c){if(board[yy][xx]||isBurned(yy,xx)){clear=false;break}yy+=sy;xx+=sx}if(clear)return true}}return false}
 function isKingInCheck(color){for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(board[y][x]&&board[y][x].type==='k'&&board[y][x].color===color)return isSquareAttacked(y,x,color);return false}
 function broadcastState(){if(conn&&conn.open)conn.send({type:'state',N,board,turn,space,history,last,mode,bioHazards,burnedCells,pendingBurn,pendingLasso,lassoCooldown})}
@@ -280,7 +306,7 @@ function renderSpace(){let box=el('spaceList');box.innerHTML='';if(!space.length
 function renderPiecePalette(){let box=el('piecePalette');box.innerHTML='';[['p','Пешка','Pawn'],['n','Конь','Knight'],['b','Слон','Bishop'],['r','Ладья','Rook'],['q','Ферзь','Queen'],['k','Король','King']].forEach(([t,n,en])=>{let b=document.createElement('button');b.className='piece-choice'+(tool===t?' active':'');b.textContent=glyph[editColor][t]+' '+(currentLanguage==='en'?en:n);b.onclick=()=>setTool(t);box.appendChild(b)})}
 function renderAbilityPalette(){let box=el('abilityPalette');box.innerHTML='';abilities.forEach(a=>{let b=document.createElement('button');b.className=(abilityChoice===a[0]?'active ':'')+(a[0]==='burn'?'burn-ability':'');b.textContent=a[2]+' '+(currentLanguage==='en'?(translations[a[1]]||a[1]):a[1]);b.onclick=()=>{abilityChoice=a[0];el('abilityHelp').textContent=(currentLanguage==='en'?(translations[a[3]]||a[3]):a[3])+(currentLanguage==='en'?' Tap one of your pieces to assign it.':' Нажми на свою фигуру, чтобы назначить.');renderAbilityPalette()};box.appendChild(b)})}
 function renderDescriptions(){el('abilityDescriptions').innerHTML='';abilities.slice(1).forEach(a=>{let d=document.createElement('div');d.className='ability';d.innerHTML='<strong>'+a[2]+' '+(currentLanguage==='en'?(translations[a[1]]||a[1]):a[1])+'</strong><span>'+(currentLanguage==='en'?(translations[a[3]]||a[3]):a[3])+'</span>';el('abilityDescriptions').appendChild(d)})}
-function toggleEditor(force){editor=typeof force==='boolean'?force:!editor;el('editToggle').textContent=editor?'Выключить редактор':'Включить редактор';el('editToggle').classList.toggle('active',editor);selected=null;legal=[];render()}
+function toggleEditor(force){editor=typeof force==='boolean'?force:!editor;if(editor)analysisCompatible=false;el('editToggle').textContent=editor?'Выключить редактор':'Включить редактор';el('editToggle').classList.toggle('active',editor);selected=null;legal=[];render()}
 function setEditColor(c){editColor=c;el('whiteSide').classList.toggle('active',c==='w');el('blackSide').classList.toggle('active',c==='b');renderPiecePalette()}
 function setTool(t){tool=t;renderPiecePalette();el('eraseTool').classList.toggle('active',t==='erase')}
 function clearBoard(){if(!editor)toggleEditor();board=emptyBoard(N);space=[];history.push('Поле очищено редактором.');render()}
@@ -298,20 +324,20 @@ async function accountSignUp(){
  if(!email||password.length<6){accountMessage('Введи email и пароль минимум из 6 символов.');return}
  const {data,error}=await supabaseClient.auth.signUp({email,password,options:{data:{username:username||undefined},emailRedirectTo:'https://uyuu147.github.io/Muhamedchess/'}});
  if(error){accountMessage('Ошибка регистрации: '+error.message);return}
- if(data.session){accountUser=data.user;await loadAccountProfile();accountMessage('Аккаунт создан! Ты вошёл в MuhamedChess.')}
+ if(data.session){accountUser=data.user;await loadAccountProfile();await checkAccountPermissions();accountMessage('Аккаунт создан! Ты вошёл в MuhamedChess.')}
  else accountMessage('Регистрация почти готова. Проверь почту и подтверди email, затем войди.');
 }
 async function accountSignIn(){
  if(!supabaseClient){accountMessage('Не загрузился модуль аккаунта. Обнови страницу.');return}
  const {data,error}=await supabaseClient.auth.signInWithPassword({email:el('accountEmail').value.trim(),password:el('accountPassword').value});
  if(error){accountMessage('Ошибка входа: '+error.message);return}
- accountUser=data.user;await loadAccountProfile();accountMessage('Вход выполнен.');
+ accountUser=data.user;await loadAccountProfile();await checkAccountPermissions();if(!accountBlocked)accountMessage('Вход выполнен.');
 }
 async function accountSignOut(){
  if(!supabaseClient)return;
  const {error}=await supabaseClient.auth.signOut();
  if(error){accountMessage('Ошибка выхода: '+error.message);return}
- accountUser=null;el('accountRatings').innerHTML='';accountMessage('Ты вышел из аккаунта.');
+ accountUser=null;accountRole=null;accountBlocked=false;el('accountRatings').innerHTML='';el('adminPanel').style.display='none';accountMessage('Ты вышел из аккаунта.');
 }
 async function loadAccountProfile(){
  if(!accountUser||!supabaseClient)return;
@@ -326,11 +352,110 @@ async function loadAccountProfile(){
  el('accountRatings').innerHTML=['normal','crazy','special'].map(m=>{const r=(ratings||[]).find(x=>x.mode===m);return '<div class="ability"><strong>'+labels[m]+' — '+(r?r.rating:1500)+' Elo</strong><span>Победы: '+(r?.wins||0)+' · Поражения: '+(r?.losses||0)+' · Ничьи: '+(r?.draws||0)+' · Игр: '+(r?.games||0)+'</span></div>'}).join('');
  accountMessage('Профиль: '+(profile?.username||'Игрок')+' · '+accountUser.email);
 }
+
+async function stockfishEvaluate(fen){
+ const url='https://stockfish.online/api/s/v2.php?'+new URLSearchParams({fen,depth:'12'}).toString();
+ const response=await fetch(url,{method:'GET',cache:'no-store'});
+ if(!response.ok)throw new Error('Движок ответил HTTP '+response.status);
+ const data=await response.json();
+ if(!data.success)throw new Error(data.error||'Движок не смог оценить позицию');
+ if(typeof data.evaluation!=='number'&&data.mate===null)throw new Error('Движок вернул некорректную оценку');
+ return data;
+}
+function moveLabel(uci){return uci.length>=4?uci.slice(0,2)+'–'+uci.slice(2,4)+(uci.length>4?'='+uci.slice(4).toUpperCase():''):uci}
+function evalLabel(d){return d.mate!==null?'мат в '+d.mate:(d.evaluation>0?'+':'')+Number(d.evaluation).toFixed(2)}
+async function analyzeGame(){
+ const status=el('analysisStatus'),box=el('analysisResults'),button=el('analyzeGameButton');
+ if(!analysisCompatible||N!==8||!['normal','special'].includes(mode)){status.textContent='Эту партию нельзя разобрать обычным шахматным движком: использовались нестандартные правила, размер поля или редактор.';return}
+ if(!analysisMoves.length){status.textContent='Сначала сделай несколько ходов в стандартной партии 8×8.';return}
+ const moves=analysisMoves.slice(0,30),truncated=analysisMoves.length>moves.length;
+ box.innerHTML='';button.disabled=true;
+ let blunders=0,mistakes=0,inaccuracies=0;
+ try{
+  for(let i=0;i<moves.length;i++){
+   status.textContent='Stockfish анализирует ход '+(i+1)+' из '+moves.length+'…';
+   const m=moves[i];
+   const before=await stockfishEvaluate(m.fenBefore);
+   const after=await stockfishEvaluate(m.fenAfter);
+   let loss=NaN;
+   if(before.mate===null&&after.mate===null){
+    loss=Math.max(0,m.color==='w'?before.evaluation-after.evaluation:after.evaluation-before.evaluation);
+   }else if(before.mate!==null&&after.mate===null)loss=99;
+   else if(before.mate===null&&after.mate!==null)loss=99;
+   let kind='Хороший ход';
+   if(before.bestmove&&before.bestmove.replace(/^bestmove\s+/,'').split(/\s+/)[0]===m.uci)kind='Лучший ход';
+   else if(loss>=1.5){kind='Грубая ошибка';blunders++}
+   else if(loss>=0.7){kind='Ошибка';mistakes++}
+   else if(loss>=0.25){kind='Неточность';inaccuracies++}
+   else if(loss>=0.1)kind='Небольшая неточность';
+   const row=document.createElement('div');row.className='ability';
+   const strong=document.createElement('strong');strong.textContent=(i+1)+'. '+(m.color==='w'?'Белые':'Чёрные')+' · '+moveLabel(m.uci)+' — '+kind;
+   const span=document.createElement('span');span.textContent='Лучший ход: '+(before.bestmove||'—').replace(/^bestmove\s+/,'').split(/\s+/)[0]+' · Потеря: '+(Number.isFinite(loss)?Math.round(loss*100)+' цп':'матовая оценка')+' · Позиция после хода: '+evalLabel(after);
+   row.append(strong,span);box.appendChild(row);
+  }
+  status.textContent='Разбор завершён · '+moves.length+' ходов · грубых ошибок: '+blunders+' · ошибок: '+mistakes+' · неточностей: '+inaccuracies+(truncated?' · показаны первые 30 ходов.':'')+' Оценки приблизительные, глубина 12.';
+ }catch(err){
+  status.textContent='Не удалось закончить разбор: '+err.message+'. Попробуй ещё раз позже.';
+ }finally{button.disabled=false}
+}
+function adminMessage(msg){const n=el('adminStatus');if(n)n.textContent=msg}
+async function checkAccountPermissions(){
+ if(!accountUser||!supabaseClient)return;
+ const [roleResult,banResult]=await Promise.all([
+  supabaseClient.rpc('my_admin_role'),
+  supabaseClient.rpc('get_my_ban_status')
+ ]);
+ accountRole=roleResult.error?null:roleResult.data;
+ const panel=el('adminPanel');
+ if(panel)panel.style.display=accountRole?'block':'none';
+ const roleControls=el('adminRoleControls');
+ if(roleControls)roleControls.style.display=accountRole==='owner'?'flex':'none';
+ if(accountRole)await adminRefreshUsers();
+ const banned=banResult.data&&banResult.data.banned;
+ accountBlocked=!!banned;
+ if(accountBlocked){
+  const until=banResult.data.expires_at?' до '+new Date(banResult.data.expires_at).toLocaleString():' навсегда';
+  accountMessage('Аккаунт заблокирован'+until+'. Причина: '+(banResult.data.reason||'не указана'));
+ }
+}
+async function adminRefreshUsers(){
+ if(!supabaseClient||!accountRole)return;
+ const {data,error}=await supabaseClient.rpc('admin_list_users');
+ if(error){adminMessage('Не удалось загрузить игроков: '+error.message+' · проверь, что SQL-файл создателя выполнен.');return}
+ const box=el('adminUsers');box.replaceChildren();
+ (data||[]).forEach(u=>{
+  const row=document.createElement('div');row.className='ability';
+  const title=document.createElement('strong');title.textContent=(u.username||'Без ника')+' · '+u.email;
+  const details=document.createElement('span');details.textContent='Роль: '+(u.role||'игрок')+' · '+(u.banned?'Заблокирован'+(u.expires_at?' до '+new Date(u.expires_at).toLocaleString():' навсегда'):'Активен');
+  row.append(title,details);box.appendChild(row);
+ });
+ adminMessage('Игроков в списке: '+(data||[]).length+'. Блокировка применяется к учётной записи.');
+}
+async function adminBan(hours){
+ const email=el('adminEmail').value.trim(),reason=el('adminReason').value.trim();
+ if(!email){adminMessage('Введи email игрока.');return}
+ const {error}=await supabaseClient.rpc('admin_ban_user',{p_email:email,p_reason:reason,p_hours:hours});
+ adminMessage(error?'Ошибка: '+error.message:(hours===null?'Игрок заблокирован навсегда.':'Игрок заблокирован на '+hours+' ч.'));
+ await adminRefreshUsers();
+}
+async function adminUnban(){
+ const email=el('adminEmail').value.trim();if(!email){adminMessage('Введи email игрока.');return}
+ const {error}=await supabaseClient.rpc('admin_unban_user',{p_email:email});
+ adminMessage(error?'Ошибка: '+error.message:'Блокировка снята.');await adminRefreshUsers();
+}
+async function adminSetRole(){
+ if(accountRole!=='owner'){adminMessage('Только создатель может менять роли.');return}
+ const email=el('adminEmail').value.trim(),role=el('adminRole').value;
+ if(!email){adminMessage('Введи email игрока.');return}
+ const {error}=await supabaseClient.rpc('owner_set_role',{p_email:email,p_role:role});
+ adminMessage(error?'Ошибка: '+error.message:'Роль обновлена: '+role);await adminRefreshUsers();
+}
+
 async function initAccount(){
  if(!supabaseClient){accountMessage('Не удалось загрузить Supabase. Проверь интернет и обнови страницу.');return}
  const {data:{session}}=await supabaseClient.auth.getSession();
- if(session){accountUser=session.user;await loadAccountProfile()}
- supabaseClient.auth.onAuthStateChange((_event,session)=>{accountUser=session?.user||null;if(accountUser)setTimeout(()=>loadAccountProfile(),0);else el('accountRatings').innerHTML=''});
+ if(session){accountUser=session.user;await loadAccountProfile();await checkAccountPermissions()}
+ supabaseClient.auth.onAuthStateChange((_event,session)=>{accountUser=session?.user||null;if(accountUser)setTimeout(async()=>{await loadAccountProfile();await checkAccountPermissions()},0);else{accountRole=null;accountBlocked=false;el('accountRatings').innerHTML='';el('adminPanel').style.display='none'}});
 }
 
 initAccount();
