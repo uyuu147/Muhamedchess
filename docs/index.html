@@ -578,7 +578,11 @@ function ensureLocalStockfish(){
     done.resolve(data);
    }
   };
-  worker.onerror=event=>fail('Ошибка локального Stockfish: '+(event.message||'не удалось загрузить движок или WASM-файл.'));
+  worker.onerror=event=>{
+   const message='Ошибка локального Stockfish: '+(event.message||'не удалось загрузить движок или WASM-файл.');
+   if(localStockfishPending){const pending=localStockfishPending;localStockfishPending=null;clearTimeout(pending.timer);pending.reject(new Error(message))}
+   if(!settled)fail(message);
+  };
   worker.postMessage('uci');
  });
  return localStockfishInitPromise;
