@@ -222,7 +222,7 @@ const abilities=[
 let N=8,board=[],turn='w',selected=null,legal=[],flipped=false,editor=false,editColor='w',tool='p',abilityChoice='none',space=[],history=[],snapshots=[],last=null,returnMode=false,gameOver=false,mateKingColor=null,mode='normal',peer=null,conn=null,onlineRole=null,inviteUrl='',onlineSynced=false,bioHazards=[],burnedCells=[],pendingBurn=null,pendingLasso=null,lassoCooldown={w:0,b:0},specialVisual=null,specialVisualTimer=null;
 
 let analysisMoves=[],analysisCompatible=true,accountBlocked=false,accountRole=null;
-let versusComputer=false,computerThinking=false,computerSide='b',computerHumanSide='w',computerSkill=0,computerLevel=1200;
+let versusComputer=false,computerThinking=false,computerSide='b',computerHumanSide='w',computerSkill=0,computerLevel=1200,computerTurnToken=0;
 let currentLiveGameId=null,lastAdminOverrideAt=null,liveGamePollTimer=null,adminViewingGameId=null,adminViewerState=null,adminViewerSelected=null;
 let currentLanguage='ru';
 const translations={
@@ -322,7 +322,7 @@ const el=id=>document.getElementById(id);
 function emptyBoard(n){return Array.from({length:n},()=>Array(n).fill(null))}
 function piece(type,color,ability='none'){return {type,color,ability,id:Math.random().toString(36).slice(2,9),moved:false}}
 function setup(){gameOver=false;mateKingColor=null;analysisMoves=[];analysisCompatible=N===8;board=emptyBoard(N);let order=N===8?['r','n','b','q','k','b','n','r']:N===12?['r','n','b','q','k','b','n','r','b','n','q','r']:['r','n','b','q','k','b','n','r','b','n','q','r','r','n','b','q'];for(let x=0;x<N;x++){board[N-1][x]=piece(order[x], 'w');board[N-2][x]=piece('p','w');board[0][x]=piece(order[x],'b');board[1][x]=piece('p','b')}turn='w';selected=null;legal=[];space=[];history=[];snapshots=[];last=null;bioHazards=[];burnedCells=[];pendingBurn=null;pendingLasso=null;lassoCooldown={w:0,b:0};render()}
-function newGame(){setup();broadcastState();if(versusComputer&&computerSide==='w')setTimeout(computerPlayTurn,80)}
+function newGame(){computerTurnToken++;computerThinking=false;setup();broadcastState();if(versusComputer&&computerSide==='w')setTimeout(computerPlayTurn,80)}
 function resign(){if(gameOver)return;if(!confirm((turn==='w'?'Белые':'Чёрные')+' сдаются?'))return;gameOver=true;let winner=turn==='w'?'Чёрные':'Белые';history.push('🏳️ '+(turn==='w'?'Белые':'Чёрные')+' сдались. Победа: '+winner+'.');selected=null;legal=[];render();broadcastState()}
 function offerDraw(){if(gameOver)return;if(confirm((turn==='w'?'Белые':'Чёрные')+' предлагают ничью. Соперник принимает?')){gameOver=true;history.push('🤝 Игроки согласились на ничью.');selected=null;legal=[];render();broadcastState()}else{history.push('Ничья отклонена.');render()}}
 function cloneState(){return {board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null,bioHazards:bioHazards.map(h=>({...h})),burnedCells:burnedCells.map(h=>({...h})),pendingBurn:pendingBurn?{...pendingBurn}:null,pendingLasso:pendingLasso?{...pendingLasso}:null,lassoCooldown:{...lassoCooldown},analysisMoves:analysisMoves.map(m=>({...m})),analysisCompatible,mateKingColor,gameOver}}
@@ -429,7 +429,7 @@ function startComputerGame(){
  if(N!==8){N=8;el('size').value='8'}
  if(peer){try{peer.destroy()}catch(_){}peer=null;conn=null}
  onlineRole=null;onlineSynced=false;currentLiveGameId=null;
- versusComputer=true;computerThinking=false;
+ computerTurnToken++;versusComputer=true;computerThinking=false;
  computerHumanSide=el('computerHumanSide').value==='b'?'b':'w';
  computerSide=computerHumanSide==='w'?'b':'w';
  computerLevel=Number(el('computerLevel').value)||0;
@@ -447,7 +447,7 @@ function startComputerGame(){
  if(computerSide==='w')setTimeout(computerPlayTurn,180);
 }
 function stopComputerGame(){
- versusComputer=false;computerThinking=false;
+ computerTurnToken++;versusComputer=false;computerThinking=false;
  el('computerStatus').textContent='Игра против компьютера отключена.';
  render();
 }
@@ -463,6 +463,7 @@ function computerLegalMoves(color){
 }
 async function computerPlayTurn(){
  if(!versusComputer||computerThinking||gameOver||turn!==computerSide||N!==8)return;
+ const token=computerTurnToken;
  computerThinking=true;selected=null;legal=[];render();
  const status=el('computerStatus');
  if(status)status.textContent='🤖 Компьютер думает…';
@@ -479,14 +480,15 @@ async function computerPlayTurn(){
    chosen=moves.find(m=>m.uci===best)||moves.find(m=>best&&m.uci.slice(0,4)===best.slice(0,4));
   }
   if(!chosen)chosen=moves[Math.floor(Math.random()*moves.length)];
+  if(token!==computerTurnToken||!versusComputer)return;
   computerThinking=false;
   if(versusComputer&&!gameOver&&turn===computerSide){
    move(chosen.from[0],chosen.from[1],chosen.to[0],chosen.to[1]);
    if(status)status.textContent='Компьютер сыграл '+moveLabel(chosen.uci)+'. Твой ход.';
   }
  }catch(err){
+  if(token!==computerTurnToken||!versusComputer)return;
   computerThinking=false;
-  if(!versusComputer)return;
   if(status)status.textContent='Ошибка компьютера: '+err.message+'. Сделаю случайный легальный ход.';
   const fallback=computerLegalMoves(computerSide);
   if(fallback.length&&!gameOver&&turn===computerSide){
@@ -545,7 +547,7 @@ return ''}
 function tickBurnedCells(){burnedCells=burnedCells.map(h=>({...h,countdown:h.countdown-1})).filter(h=>h.countdown>0)}
 function processBioHazards(){let remaining=[];for(let h of bioHazards){if(h.skip){h.skip=false;remaining.push(h);continue}h.countdown--;if(h.countdown>0){remaining.push(h);continue}let targets=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++){let q=board[y][x];if(q&&(mode==='crazy'||q.type!=='k'))targets.push({y,x,d:Math.max(Math.abs(y-h.r),Math.abs(x-h.c))})}targets.sort((a,b)=>a.d-b.d);let destroyed=[];for(let t of targets.slice(0,2)){if(board[t.y][t.x]){destroyed.push(coords(t.y,t.x));board[t.y][t.x]=null}}history.push('☣️ Биооружие на '+coords(h.r,h.c)+' сработало! Уничтожены две ближайшие фигуры: '+(destroyed.join(', ')||'целей нет'));}bioHazards=remaining}
 function returnSpace(r,c){if(board[r][c]){el('abilityHelp').textContent='Клетка занята. Выбери свободную клетку.';return}let i=space.findIndex(p=>p.owner===turn);if(i<0){el('abilityHelp').textContent='В космосе нет твоих фигур.';return}save();let p=space.splice(i,1)[0];board[r][c]=piece(p.type,p.color,p.ability);returnMode=false;turn=turn==='w'?'b':'w';history.push('🪐 '+names[p.type]+' вернулась из космоса на '+coords(r,c));evaluateChessPosition();render();broadcastState()}
-function setMode(m){let previousMode=mode;if(m!=='normal'){versusComputer=false;computerThinking=false;if(el('computerStatus'))el('computerStatus').textContent='Режим против компьютера отключён при смене правил.';}mode=m;if(m==='crazy')analysisCompatible=false;if(m==='normal'){if(previousMode!=='normal'){N=8;el('size').value='8';setup()}for(const row of board)for(const p of row)if(p)p.ability='none';abilityChoice='none';editor=false;el('editToggle').textContent='Включить редактор';}selected=null;legal=[];el('boardEditorPanel').style.display=m==='normal'?'none':'block';el('specialAbilitiesPanel').style.display=m==='special'?'block':'none';el('chaosAbilityPanel').style.display=m==='crazy'?'block':'none';renderAbilityPalette();el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
+function setMode(m){let previousMode=mode;if(m!=='normal'){computerTurnToken++;versusComputer=false;computerThinking=false;if(el('computerStatus'))el('computerStatus').textContent='Режим против компьютера отключён при смене правил.';}mode=m;if(m==='crazy')analysisCompatible=false;if(m==='normal'){if(previousMode!=='normal'){N=8;el('size').value='8';setup()}for(const row of board)for(const p of row)if(p)p.ability='none';abilityChoice='none';editor=false;el('editToggle').textContent='Включить редактор';}selected=null;legal=[];el('boardEditorPanel').style.display=m==='normal'?'none':'block';el('specialAbilitiesPanel').style.display=m==='special'?'block':'none';el('chaosAbilityPanel').style.display=m==='crazy'?'block':'none';renderAbilityPalette();el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
 function isSquareAttacked(r,c,color){let enemy=color==='w'?'b':'w';for(let y=0;y<N;y++)for(let x=0;x<N;x++){let p=board[y][x];if(!p||p.color!==enemy)continue;let dy=r-y,dx=c-x;if(p.type==='p'&&dy===(p.color==='w'?-1:1)&&Math.abs(dx)===1)return true;if(p.type==='n'&&Math.abs(dy)*Math.abs(dx)===2)return true;if(p.type==='k'&&Math.max(Math.abs(dy),Math.abs(dx))===1)return true;if((p.type==='r'&&(dy===0||dx===0))||(p.type==='b'&&Math.abs(dy)===Math.abs(dx))||(p.type==='q'&&(dy===0||dx===0||Math.abs(dy)===Math.abs(dx)))){let sy=Math.sign(dy),sx=Math.sign(dx),yy=y+sy,xx=x+sx,clear=true;while(yy!==r||xx!==c){if(board[yy][xx]||isBurned(yy,xx)){clear=false;break}yy+=sy;xx+=sx}if(clear)return true}}return false}
 function isKingInCheck(color){for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(board[y][x]&&board[y][x].type==='k'&&board[y][x].color===color)return isSquareAttacked(y,x,color);return false}
 function broadcastState(){if(conn&&conn.open)conn.send({type:'state',...serializeGameState()});persistLiveGameState()}
