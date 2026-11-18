@@ -111,6 +111,24 @@ h2{font-size:16px;margin:0 0 9px;color:var(--gold)}.field{display:flex;gap:7px;a
   <div class="desc" id="chaosAbilityHelp">Выбери способность, затем нажми на любую фигуру. В хаосе можно назначать способности и своим, и чужим фигурам.</div>
   <div class="palette" id="chaosAbilityPalette"></div>
  </div>
+ <div class="panel" id="computerPanel">
+  <h2>Игра против компьютера 🤖</h2>
+  <div class="field"><label for="computerHumanSide">Играть за</label><select id="computerHumanSide"><option value="w">Белые</option><option value="b">Чёрные</option></select></div>
+  <div class="field"><label for="computerLevel">Сила компьютера</label><select id="computerLevel">
+   <option value="0">0 · случайные ходы</option>
+   <option value="200">200 · очень легко</option>
+   <option value="600">600 · легко</option>
+   <option value="900">900 · новичок</option>
+   <option value="1200">1200 · любитель</option>
+   <option value="1600">1600 · клубный уровень</option>
+   <option value="1900">1900 · сильный</option>
+   <option value="2200">2200 · очень сильный</option>
+   <option value="2500">2500 · мастер</option>
+   <option value="3200">3200 · максимум</option>
+  </select></div>
+  <div class="controls"><button class="primary" onclick="startComputerGame()">Начать игру с компьютером</button><button onclick="stopComputerGame()">Отключить бота</button></div>
+  <div class="hint" id="computerStatus">Выбери цвет и силу, затем начни партию. Уровни приблизительные.</div>
+ </div>
  <div class="panel"><h2>Онлайн-игра</h2><div class="controls"><button class="primary" onclick="createOnlineRoom()">Создать комнату</button><button onclick="copyInvite()">Копировать ссылку</button></div><div class="hint" id="onlineStatus">Создай комнату и отправь ссылку другу.</div></div>
  <div class="panel" id="accountPanel"><h2>Аккаунт и рейтинг</h2>
   <div class="field"><label for="accountUsername">Имя игрока</label><input id="accountUsername" maxlength="24" placeholder="Твой ник" autocomplete="username" style="flex:1;min-width:130px"></div>
@@ -204,6 +222,7 @@ const abilities=[
 let N=8,board=[],turn='w',selected=null,legal=[],flipped=false,editor=false,editColor='w',tool='p',abilityChoice='none',space=[],history=[],snapshots=[],last=null,returnMode=false,gameOver=false,mateKingColor=null,mode='normal',peer=null,conn=null,onlineRole=null,inviteUrl='',onlineSynced=false,bioHazards=[],burnedCells=[],pendingBurn=null,pendingLasso=null,lassoCooldown={w:0,b:0},specialVisual=null,specialVisualTimer=null;
 
 let analysisMoves=[],analysisCompatible=true,accountBlocked=false,accountRole=null;
+let versusComputer=false,computerThinking=false,computerSide='b',computerHumanSide='w',computerSkill=0,computerLevel=1200;
 let currentLiveGameId=null,lastAdminOverrideAt=null,liveGamePollTimer=null,adminViewingGameId=null,adminViewerState=null,adminViewerSelected=null;
 let currentLanguage='ru';
 const translations={
@@ -303,13 +322,13 @@ const el=id=>document.getElementById(id);
 function emptyBoard(n){return Array.from({length:n},()=>Array(n).fill(null))}
 function piece(type,color,ability='none'){return {type,color,ability,id:Math.random().toString(36).slice(2,9),moved:false}}
 function setup(){gameOver=false;mateKingColor=null;analysisMoves=[];analysisCompatible=N===8;board=emptyBoard(N);let order=N===8?['r','n','b','q','k','b','n','r']:N===12?['r','n','b','q','k','b','n','r','b','n','q','r']:['r','n','b','q','k','b','n','r','b','n','q','r','r','n','b','q'];for(let x=0;x<N;x++){board[N-1][x]=piece(order[x], 'w');board[N-2][x]=piece('p','w');board[0][x]=piece(order[x],'b');board[1][x]=piece('p','b')}turn='w';selected=null;legal=[];space=[];history=[];snapshots=[];last=null;bioHazards=[];burnedCells=[];pendingBurn=null;pendingLasso=null;lassoCooldown={w:0,b:0};render()}
-function newGame(){setup();broadcastState()}
+function newGame(){setup();broadcastState();if(versusComputer&&computerSide==='w')setTimeout(computerPlayTurn,80)}
 function resign(){if(gameOver)return;if(!confirm((turn==='w'?'Белые':'Чёрные')+' сдаются?'))return;gameOver=true;let winner=turn==='w'?'Чёрные':'Белые';history.push('🏳️ '+(turn==='w'?'Белые':'Чёрные')+' сдались. Победа: '+winner+'.');selected=null;legal=[];render();broadcastState()}
 function offerDraw(){if(gameOver)return;if(confirm((turn==='w'?'Белые':'Чёрные')+' предлагают ничью. Соперник принимает?')){gameOver=true;history.push('🤝 Игроки согласились на ничью.');selected=null;legal=[];render();broadcastState()}else{history.push('Ничья отклонена.');render()}}
 function cloneState(){return {board:board.map(row=>row.map(p=>p?{...p}:null)),turn,space:space.map(p=>({...p})),history:history.slice(),last:last?{...last}:null,bioHazards:bioHazards.map(h=>({...h})),burnedCells:burnedCells.map(h=>({...h})),pendingBurn:pendingBurn?{...pendingBurn}:null,pendingLasso:pendingLasso?{...pendingLasso}:null,lassoCooldown:{...lassoCooldown},analysisMoves:analysisMoves.map(m=>({...m})),analysisCompatible,mateKingColor,gameOver}}
 function save(){snapshots.push(cloneState());if(snapshots.length>80)snapshots.shift()}
 function restore(s){board=s.board;turn=s.turn;space=s.space;history=s.history;last=s.last;bioHazards=(s.bioHazards||[]).map(h=>({...h}));burnedCells=(s.burnedCells||[]).map(h=>({...h}));pendingBurn=s.pendingBurn?{...s.pendingBurn}:null;pendingLasso=s.pendingLasso?{...s.pendingLasso}:null;lassoCooldown={...(s.lassoCooldown||{w:0,b:0})};analysisMoves=(s.analysisMoves||[]).map(m=>({...m}));analysisCompatible=s.analysisCompatible!==false;mateKingColor=s.mateKingColor||null;gameOver=!!s.gameOver;selected=null;legal=[];render()}
-function undo(){if(snapshots.length){restore(snapshots.pop());broadcastState()}}
+function undo(){if(snapshots.length){restore(snapshots.pop());if(versusComputer&&turn===computerHumanSide&&snapshots.length)restore(snapshots.pop());computerThinking=false;broadcastState();if(versusComputer&&turn===computerSide)setTimeout(computerPlayTurn,100)}}
 function changeSize(n){if(mode==='normal'&&n!==8){N=8;el('size').value='8';el('modeHelp').textContent='В обычном режиме используются классические шахматные правила и поле 8 × 8.';return}N=n;setup();if(N!==8)analysisCompatible=false;el('board').className='n'+N;render();broadcastState()}
 function coords(r,c){return String.fromCharCode(97+c)+(N-r)}
 function inside(r,c){return r>=0&&r<N&&c>=0&&c<N}
@@ -399,12 +418,83 @@ if(specialVisual){
  }
  root.appendChild(overlay);
 }
-el('turn').innerHTML=(gameOver?'<b>Партия завершена</b>':'Ход: <b>'+(turn==='w'?'Белые':'Чёрные')+'</b>')+(editor?' · редактор':'')+(!gameOver&&mode!=='crazy'&&isKingInCheck(turn)?' · ШАХ!':'');el('history').textContent=history.length?history.join('\n'):'Партия началась.';renderSpace()}
-function tap(r,c){if(gameOver)return;if(accountBlocked){accountMessage('Аккаунт временно заблокирован.');return}if(pendingLasso){let q=board[r][c];if(!q||q.color===pendingLasso.owner){el('abilityHelp').textContent='Выбери чужую фигуру для лассо.';return}q.lassoed=true;lassoCooldown[pendingLasso.owner]=3;history.push('🪢 Лассо поймало '+names[q.type]+' на '+coords(r,c)+'. Фигура не сможет двигаться до конца своего следующего хода.');pendingLasso=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();evaluateChessPosition();render();broadcastState();return}if(pendingBurn){if(board[r][c]||isBurned(r,c)){el('abilityHelp').textContent='Выбери свободную клетку, которая ещё не прожжена.';return}burnedCells.push({r,c,countdown:3});history.push('🔥 Прожигание: клетка '+coords(r,c)+' исчезла на 2 хода.');pendingBurn=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();evaluateChessPosition();render();broadcastState();return}if(returnMode){returnSpace(r,c);return}if(onlineRole&&turn!==onlineRole){el('onlineStatus').textContent='Сейчас ход соперника.';return}if(editor){analysisCompatible=false;if(tool==='erase')board[r][c]=null;else if(tool==='return'){returnSpace(r,c);return}else board[r][c]=piece(tool,editColor);render();return}
+el('turn').innerHTML=(gameOver?'<b>Партия завершена</b>':'Ход: <b>'+(turn==='w'?'Белые':'Чёрные')+'</b>')+(versusComputer?(computerThinking?' · 🤖 Компьютер думает':turn===computerHumanSide?' · Твой ход':' · Ход компьютера'):'')+(editor?' · редактор':'')+(!gameOver&&mode!=='crazy'&&isKingInCheck(turn)?' · ШАХ!':'');el('history').textContent=history.length?history.join('\n'):'Партия началась.';renderSpace()}
+function tap(r,c){if(gameOver)return;if(versusComputer&&computerThinking)return;if(versusComputer&&turn===computerSide){el('computerStatus').textContent='Сейчас ход компьютера.';return}if(accountBlocked){accountMessage('Аккаунт временно заблокирован.');return}if(pendingLasso){let q=board[r][c];if(!q||q.color===pendingLasso.owner){el('abilityHelp').textContent='Выбери чужую фигуру для лассо.';return}q.lassoed=true;lassoCooldown[pendingLasso.owner]=3;history.push('🪢 Лассо поймало '+names[q.type]+' на '+coords(r,c)+'. Фигура не сможет двигаться до конца своего следующего хода.');pendingLasso=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();evaluateChessPosition();render();broadcastState();return}if(pendingBurn){if(board[r][c]||isBurned(r,c)){el('abilityHelp').textContent='Выбери свободную клетку, которая ещё не прожжена.';return}burnedCells.push({r,c,countdown:3});history.push('🔥 Прожигание: клетка '+coords(r,c)+' исчезла на 2 хода.');pendingBurn=null;turn=turn==='w'?'b':'w';processBioHazards();tickBurnedCells();evaluateChessPosition();render();broadcastState();return}if(returnMode){returnSpace(r,c);return}if(onlineRole&&turn!==onlineRole){el('onlineStatus').textContent='Сейчас ход соперника.';return}if(editor){analysisCompatible=false;if(tool==='erase')board[r][c]=null;else if(tool==='return'){returnSpace(r,c);return}else board[r][c]=piece(tool,editColor);render();return}
 if(abilityChoice!=='none'&&board[r][c]&&(board[r][c].color===turn||mode==='crazy')){analysisCompatible=false;board[r][c].ability=abilityChoice;el('abilityHelp').textContent='Назначено: '+abilities.find(a=>a[0]===abilityChoice)[1]+'. Теперь сделай ход этой фигурой.';abilityChoice='none';renderAbilityPalette();render();return}
 if(selected){if(legal.some(([y,x])=>y===r&&x===c)){move(selected[0],selected[1],r,c);return}if(selected[0]===r&&selected[1]===c){selected=null;legal=[];render();return}}
 let p=board[r][c];if(p&&p.lassoed){el('abilityHelp').textContent='🪢 Эта фигура поймана лассо и не может двигаться до конца своего хода.';selected=null;legal=[];render();return}if(p&&(mode==='crazy'||p.color===turn)){selected=[r,c];legal=[];if(mode==='crazy'){for(let yy=0;yy<N;yy++)for(let xx=0;xx<N;xx++)if((yy!==r||xx!==c)&&!isBurned(yy,xx))legal.push([yy,xx])}else legal=legalMovesForPiece(r,c);render()}else{selected=null;legal=[];render()}}
 
+function startComputerGame(){
+ if(mode!=='normal')setMode('normal');
+ if(N!==8){N=8;el('size').value='8'}
+ if(peer){try{peer.destroy()}catch(_){}peer=null;conn=null}
+ onlineRole=null;onlineSynced=false;currentLiveGameId=null;
+ versusComputer=true;computerThinking=false;
+ computerHumanSide=el('computerHumanSide').value==='b'?'b':'w';
+ computerSide=computerHumanSide==='w'?'b':'w';
+ computerLevel=Number(el('computerLevel').value)||0;
+ const configs={
+  200:{skill:0,time:65},600:{skill:1,time:80},900:{skill:3,time:100},
+  1200:{skill:5,time:130},1600:{skill:9,time:180},1900:{skill:12,time:230},
+  2200:{skill:15,time:300},2500:{skill:18,time:420},3200:{skill:20,time:650}
+ };
+ const config=configs[computerLevel]||configs[1200];
+ computerSkill=computerLevel===0?-1:config.skill;
+ setup();
+ history.push('🤖 Игра против компьютера · сила '+computerLevel+(computerLevel===0?' · случайные ходы':' · Skill Level '+config.skill));
+ render();
+ el('computerStatus').textContent='Партия началась. Ты играешь '+(computerHumanSide==='w'?'белыми':'чёрными')+'. Компьютер: '+computerLevel+'.';
+ if(computerSide==='w')setTimeout(computerPlayTurn,180);
+}
+function stopComputerGame(){
+ versusComputer=false;computerThinking=false;
+ el('computerStatus').textContent='Игра против компьютера отключена.';
+ render();
+}
+function computerLegalMoves(color){
+ const out=[];
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+  const p=board[r][c];if(!p||p.color!==color)continue;
+  for(const [y,x] of legalMovesForPiece(r,c)){
+   out.push({from:[r,c],to:[y,x],uci:coords(r,c)+coords(y,x)+(p.type==='p'&&(y===0||y===7)?'q':'')});
+  }
+ }
+ return out;
+}
+async function computerPlayTurn(){
+ if(!versusComputer||computerThinking||gameOver||turn!==computerSide||N!==8)return;
+ computerThinking=true;selected=null;legal=[];render();
+ const status=el('computerStatus');
+ if(status)status.textContent='🤖 Компьютер думает…';
+ try{
+  const moves=computerLegalMoves(computerSide);
+  if(!moves.length){evaluateChessPosition();computerThinking=false;render();return}
+  let chosen=null;
+  if(computerLevel===0||computerSkill<0){
+   chosen=moves[Math.floor(Math.random()*moves.length)];
+  }else{
+   const fen=analysisFEN();
+   const result=await runLocalStockfish(fen,{skill:computerSkill,moveTime:({200:65,600:80,900:100,1200:130,1600:180,1900:230,2200:300,2500:420,3200:650})[computerLevel]||130});
+   const best=parseBestMove(result.bestmove);
+   chosen=moves.find(m=>m.uci===best)||moves.find(m=>best&&m.uci.slice(0,4)===best.slice(0,4));
+  }
+  if(!chosen)chosen=moves[Math.floor(Math.random()*moves.length)];
+  computerThinking=false;
+  if(versusComputer&&!gameOver&&turn===computerSide){
+   move(chosen.from[0],chosen.from[1],chosen.to[0],chosen.to[1]);
+   if(status)status.textContent='Компьютер сыграл '+moveLabel(chosen.uci)+'. Твой ход.';
+  }
+ }catch(err){
+  computerThinking=false;
+  if(!versusComputer)return;
+  if(status)status.textContent='Ошибка компьютера: '+err.message+'. Сделаю случайный легальный ход.';
+  const fallback=computerLegalMoves(computerSide);
+  if(fallback.length&&!gameOver&&turn===computerSide){
+   const chosen=fallback[Math.floor(Math.random()*fallback.length)];
+   move(chosen.from[0],chosen.from[1],chosen.to[0],chosen.to[1]);
+  }else{evaluateChessPosition();render()}
+ }
+}
 function hasCustomAbilities(){return board.some(row=>row.some(q=>q&&q.ability&&q.ability!=='none'))}
 function analysisFEN(afterCurrentMove=false){
  const code={p:'p',n:'n',b:'b',r:'r',q:'q',k:'k'};
@@ -421,7 +511,7 @@ function analysisFEN(afterCurrentMove=false){
  const played=analysisMoves.length+(afterCurrentMove?1:0);
  return rows+' '+turn+' '+(rights||'-')+' '+ep+' 0 '+(Math.floor(played/2)+1);
 }
-function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];let enPassantCapture=!!(p&&p.type==='p'&&c!==x&&!target&&board[r][x]&&board[r][x].type==='p');if(enPassantCapture)target=board[r][x];let trackMove=analysisCompatible&&N===8&&(mode==='normal'||mode==='special')&&!hasCustomAbilities()&&p&&p.ability==='none';if(analysisCompatible&&!trackMove)analysisCompatible=false;let fenBefore=trackMove?analysisFEN():null,uciMove=coords(r,c)+coords(y,x)+(p&&p.type==='p'&&(y===0||y===N-1)?'q':'');let sanMove=trackMove?uciSanFromFen(fenBefore,uciMove):null;let movingColor=turn;let airplaneCapture=mode==='special'&&p.type==='b'&&target&&target.type==='r';tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;if(enPassantCapture)board[r][x]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type]+(enPassantCapture?' (на проходе)':'');const moveNumber=history.filter(item=>/^\\d+\\.\\s/.test(String(item))).length+1;history.push(moveNumber+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect([r,c],[y,x],p.type,target&&target.type);if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(turn!==movingColor)evaluateChessPosition();if(trackMove&&analysisCompatible&&!hasCustomAbilities()){const suffix=turn!==movingColor&&isKingInCheck(turn)?(gameOver?'#':'+'):'';analysisMoves.push({fenBefore,fenAfter:analysisFEN(true),uci:uciMove,san:sanMove+suffix,color:movingColor});}else if(trackMove)analysisCompatible=false;render();broadcastState()}
+function move(r,c,y,x){if(gameOver||isBurned(y,x))return;save();let p=board[r][c],target=board[y][x];let enPassantCapture=!!(p&&p.type==='p'&&c!==x&&!target&&board[r][x]&&board[r][x].type==='p');if(enPassantCapture)target=board[r][x];let trackMove=analysisCompatible&&N===8&&(mode==='normal'||mode==='special')&&!hasCustomAbilities()&&p&&p.ability==='none';if(analysisCompatible&&!trackMove)analysisCompatible=false;let fenBefore=trackMove?analysisFEN():null,uciMove=coords(r,c)+coords(y,x)+(p&&p.type==='p'&&(y===0||y===N-1)?'q':'');let sanMove=trackMove?uciSanFromFen(fenBefore,uciMove):null;let movingColor=turn;let airplaneCapture=mode==='special'&&p.type==='b'&&target&&target.type==='r';tickLassoCooldown(p.color);if(mode!=='crazy'&&target&&target.type==='k')return;if(mode!=='crazy'&&p.type==='k'&&Math.abs(x-c)===2){let rf=x>c?N-1:0,rt=x>c?x-1:x+1;board[y][rt]=board[r][rf];board[r][rf]=null;if(board[y][rt])board[y][rt].moved=true;history.push('♖ Рокировка!')}board[y][x]=p;board[r][c]=null;if(enPassantCapture)board[r][x]=null;p.moved=true;last={from:[r,c],to:[y,x]};let note=coords(r,c)+' → '+coords(y,x);if(target)note+=' × '+names[target.type]+(enPassantCapture?' (на проходе)':'');const moveNumber=history.filter(item=>/^\\d+\\.\\s/.test(String(item))).length+1;history.push(moveNumber+'. '+(turn==='w'?'Белые':'Чёрные')+': '+note);selected=null;legal=[];let effect=activate(p,y,x);if(effect)history.push(effect);if(mode==='special'){let special=triggerSpecialEffect([r,c],[y,x],p.type,target&&target.type);if(special)history.push(special);}if(p.type==='p'&&(y===0||y===N-1)){p.type='q';history.push('Превращение пешки в ферзя.')}if(p.ability==='burn'){p.ability='none';pendingBurn={owner:p.color};history.push('🔥 Выбери свободную клетку для прожигания.');render();broadcastState();return}else if(p.ability==='time'){p.ability='none';history.push('⌛ Время использовано: тебе доступен ровно один дополнительный ход.');}else turn=turn==='w'?'b':'w';if(pendingLasso){history.push('🪢 Выбери вражескую фигуру на поле.');render();broadcastState();return}releaseLassoForTurn(p.color);processBioHazards();tickBurnedCells();if(turn!==movingColor)evaluateChessPosition();if(trackMove&&analysisCompatible&&!hasCustomAbilities()){const suffix=turn!==movingColor&&isKingInCheck(turn)?(gameOver?'#':'+'):'';analysisMoves.push({fenBefore,fenAfter:analysisFEN(true),uci:uciMove,san:sanMove+suffix,color:movingColor});}else if(trackMove)analysisCompatible=false;render();broadcastState();if(versusComputer&&!computerThinking&&!gameOver&&turn===computerSide)setTimeout(computerPlayTurn,180)}
 function triggerSpecialEffect(from,to,pieceType,capturedType){
  let kind='flash',icon='✨',message='✨ Вспышка после хода!';
  if(capturedType){
@@ -455,7 +545,7 @@ return ''}
 function tickBurnedCells(){burnedCells=burnedCells.map(h=>({...h,countdown:h.countdown-1})).filter(h=>h.countdown>0)}
 function processBioHazards(){let remaining=[];for(let h of bioHazards){if(h.skip){h.skip=false;remaining.push(h);continue}h.countdown--;if(h.countdown>0){remaining.push(h);continue}let targets=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++){let q=board[y][x];if(q&&(mode==='crazy'||q.type!=='k'))targets.push({y,x,d:Math.max(Math.abs(y-h.r),Math.abs(x-h.c))})}targets.sort((a,b)=>a.d-b.d);let destroyed=[];for(let t of targets.slice(0,2)){if(board[t.y][t.x]){destroyed.push(coords(t.y,t.x));board[t.y][t.x]=null}}history.push('☣️ Биооружие на '+coords(h.r,h.c)+' сработало! Уничтожены две ближайшие фигуры: '+(destroyed.join(', ')||'целей нет'));}bioHazards=remaining}
 function returnSpace(r,c){if(board[r][c]){el('abilityHelp').textContent='Клетка занята. Выбери свободную клетку.';return}let i=space.findIndex(p=>p.owner===turn);if(i<0){el('abilityHelp').textContent='В космосе нет твоих фигур.';return}save();let p=space.splice(i,1)[0];board[r][c]=piece(p.type,p.color,p.ability);returnMode=false;turn=turn==='w'?'b':'w';history.push('🪐 '+names[p.type]+' вернулась из космоса на '+coords(r,c));evaluateChessPosition();render();broadcastState()}
-function setMode(m){let previousMode=mode;mode=m;if(m==='crazy')analysisCompatible=false;if(m==='normal'){if(previousMode!=='normal'){N=8;el('size').value='8';setup()}for(const row of board)for(const p of row)if(p)p.ability='none';abilityChoice='none';editor=false;el('editToggle').textContent='Включить редактор';}selected=null;legal=[];el('boardEditorPanel').style.display=m==='normal'?'none':'block';el('specialAbilitiesPanel').style.display=m==='special'?'block':'none';el('chaosAbilityPanel').style.display=m==='crazy'?'block':'none';renderAbilityPalette();el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
+function setMode(m){let previousMode=mode;if(m!=='normal'){versusComputer=false;computerThinking=false;}mode=m;if(m==='crazy')analysisCompatible=false;if(m==='normal'){if(previousMode!=='normal'){N=8;el('size').value='8';setup()}for(const row of board)for(const p of row)if(p)p.ability='none';abilityChoice='none';editor=false;el('editToggle').textContent='Включить редактор';}selected=null;legal=[];el('boardEditorPanel').style.display=m==='normal'?'none':'block';el('specialAbilitiesPanel').style.display=m==='special'?'block':'none';el('chaosAbilityPanel').style.display=m==='crazy'?'block':'none';renderAbilityPalette();el('normalMode').classList.toggle('active',m==='normal');el('crazyMode').classList.toggle('active',m==='crazy');el('specialMode').classList.toggle('active',m==='special');let help=m==='normal'?'Обычные ходы. Короля съесть нельзя. Шах есть, мата нет.':m==='crazy'?'Хаос: можно ходить любыми фигурами как угодно, брать короля. Шаха и мата нет.':'Режим спецэффектов: обычные шахматные правила, но после большинства ходов случается случайное событие. Собери комбинацию из двух ладей и двух слонов, чтобы вызвать самолёт!';el('modeHelp').textContent=help;history.push('Режим: '+(m==='normal'?'Обычный':m==='crazy'?'Ебанутый':'спецэффекты'));render();broadcastState()}
 function isSquareAttacked(r,c,color){let enemy=color==='w'?'b':'w';for(let y=0;y<N;y++)for(let x=0;x<N;x++){let p=board[y][x];if(!p||p.color!==enemy)continue;let dy=r-y,dx=c-x;if(p.type==='p'&&dy===(p.color==='w'?-1:1)&&Math.abs(dx)===1)return true;if(p.type==='n'&&Math.abs(dy)*Math.abs(dx)===2)return true;if(p.type==='k'&&Math.max(Math.abs(dy),Math.abs(dx))===1)return true;if((p.type==='r'&&(dy===0||dx===0))||(p.type==='b'&&Math.abs(dy)===Math.abs(dx))||(p.type==='q'&&(dy===0||dx===0||Math.abs(dy)===Math.abs(dx)))){let sy=Math.sign(dy),sx=Math.sign(dx),yy=y+sy,xx=x+sx,clear=true;while(yy!==r||xx!==c){if(board[yy][xx]||isBurned(yy,xx)){clear=false;break}yy+=sy;xx+=sx}if(clear)return true}}return false}
 function isKingInCheck(color){for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(board[y][x]&&board[y][x].type==='k'&&board[y][x].color===color)return isSquareAttacked(y,x,color);return false}
 function broadcastState(){if(conn&&conn.open)conn.send({type:'state',...serializeGameState()});persistLiveGameState()}
@@ -587,7 +677,7 @@ function ensureLocalStockfish(){
  });
  return localStockfishInitPromise;
 }
-function runLocalStockfish(fen){
+function runLocalStockfish(fen,options={}){
  const task=localStockfishQueue.then(async()=>{
   const worker=await ensureLocalStockfish();
   return new Promise((resolve,reject)=>{
@@ -598,8 +688,15 @@ function runLocalStockfish(fen){
     if(localStockfishPending===pending){localStockfishPending=null;worker.postMessage('stop');reject(new Error('Stockfish слишком долго анализировал позицию.'))}
    },5000);
    localStockfishPending=pending;
+   if(options.skill!==undefined){
+    const skill=Math.max(0,Math.min(20,Math.round(Number(options.skill)||0)));
+    worker.postMessage('setoption name UCI_LimitStrength value false');
+    worker.postMessage('setoption name Skill Level value '+skill);
+   }else{
+    worker.postMessage('setoption name Skill Level value 20');
+   }
    worker.postMessage('position fen '+fen);
-   worker.postMessage('go movetime 55');
+   worker.postMessage('go movetime '+Math.max(40,Math.min(1200,Number(options.moveTime)||55)));
   });
  });
  localStockfishQueue=task.then(()=>undefined,()=>undefined);
