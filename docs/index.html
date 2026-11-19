@@ -443,7 +443,15 @@ function startComputerGame(){
  setup();
  history.push('🤖 Игра против компьютера · сила '+computerLevel+(computerLevel===0?' · случайные ходы':' · Skill Level '+config.skill));
  render();
- el('computerStatus').textContent='Партия началась. Ты играешь '+(computerHumanSide==='w'?'белыми':'чёрными')+'. Компьютер: '+computerLevel+'.';
+ const computerStatus=el('computerStatus');
+ computerStatus.textContent='Партия началась. Ты играешь '+(computerHumanSide==='w'?'белыми':'чёрными')+'. Загружаю движок…';
+ if(computerLevel>0){
+  ensureLocalStockfish().then(()=>{
+   if(versusComputer&&computerStatus)computerStatus.textContent='Компьютер готов · уровень '+computerLevel+'. Твой ход.';
+  }).catch(err=>{
+   if(versusComputer&&computerStatus)computerStatus.textContent='Ошибка загрузки движка: '+err.message;
+  });
+ }
  if(computerSide==='w')setTimeout(computerPlayTurn,180);
 }
 function stopComputerGame(){
@@ -475,7 +483,7 @@ async function computerPlayTurn(){
    chosen=moves[Math.floor(Math.random()*moves.length)];
   }else{
    const fen=analysisFEN();
-   const result=await runLocalStockfish(fen,{skill:computerSkill,moveTime:({200:45,600:55,900:65,1200:80,1600:100,1900:120,2200:145,2500:170,3200:200})[computerLevel]||80});
+   const result=await runLocalStockfish(fen,{skill:computerSkill,moveTime:({200:40,600:40,900:40,1200:40,1600:40,1900:40,2200:40,2500:40,3200:40})[computerLevel]||40});
    const best=parseBestMove(result.bestmove);
    chosen=moves.find(m=>m.uci===best)||moves.find(m=>best&&m.uci.slice(0,4)===best.slice(0,4));
   }
@@ -1018,7 +1026,7 @@ async function analyzeGame(){
   }
   const pct=p=>p.moves?Math.max(0,Math.min(100,Math.round((1-p.loss/p.moves)*100))):0;
   const shifts=entries.filter(x=>x.shift).length;
-  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' · Нажми на любой ход, чтобы увидеть его на доске и сравнить с лучшим вариантом Stockfish.'+' · Быстрый режим Stockfish: около 0,055 секунды на позицию. Результаты появлялись по мере анализа.';
+  status.textContent='Разбор завершён · '+moves.length+' полуходов · точность: белые '+pct(players.w)+'%, чёрные '+pct(players.b)+'% · смен преимущества: '+shifts+(truncated?' · показаны первые 80 полуходов.':'')+' · Нажми на любой ход, чтобы увидеть его на доске и сравнить с лучшим вариантом Stockfish.'+' · Короткий режим Stockfish: 40 мс на позицию. Результаты появлялись по мере анализа.';
  }catch(err){
   status.textContent='Не удалось закончить разбор: '+err.message+'. Попробуй ещё раз позже.';
  }finally{button.disabled=false}
